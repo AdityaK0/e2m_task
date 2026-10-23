@@ -37,8 +37,20 @@ export interface CustomerPayload {
   website?: string | null;
   status?: CustomerStatus;
   health_score?: number | null;
-  assigned_manager_id?: number | null;
+  manager_ids?: number[];
   notes?: string | null;
+}
+
+export interface BulkAssignmentPayload {
+  manager_id: number;
+  customer_ids?: number[];
+  all?: true;
+}
+
+export interface BulkAssignmentResult {
+  assigned: number;
+  unassigned: number;
+  skipped: number;
 }
 
 export const customersApi = {
@@ -64,5 +76,34 @@ export const customersApi = {
 
   async remove(id: number): Promise<void> {
     await api.delete(`/customers/${id}`);
+  },
+
+  async managers(id: number) {
+    const { data } = await api.get<Customer["assigned_managers"]>(`/customers/${id}/managers`);
+    return data;
+  },
+
+  async assignManager(id: number, manager_id: number): Promise<void> {
+    await api.post(`/customers/${id}/managers`, { manager_id });
+  },
+
+  async unassignManager(id: number, manager_id: number): Promise<void> {
+    await api.delete(`/customers/${id}/managers/${manager_id}`);
+  },
+
+  async bulkAssign(payload: BulkAssignmentPayload) {
+    const { data } = await api.post<BulkAssignmentResult>(
+      "/customers/assignments",
+      payload,
+    );
+    return data;
+  },
+
+  async bulkUnassign(payload: BulkAssignmentPayload) {
+    const { data } = await api.delete<BulkAssignmentResult>(
+      "/customers/assignments",
+      { data: payload },
+    );
+    return data;
   },
 };

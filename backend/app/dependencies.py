@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.modules.auth.permissions import Permission, has_permission
-from app.modules.users.models import User
+from app.modules.users.models import Role, User
 from app.modules.users.repository import UserRepository
 from app.utils.exceptions import AppException
 from app.utils.security import decode_access_token
@@ -55,6 +55,20 @@ def require_permissions(*permissions: Permission):
                 status_code=403,
                 error_code="FORBIDDEN",
                 required_permissions=[p.value for p in missing],
+            )
+        return current_user
+
+    return dependency
+
+
+def require_roles(*roles: Role):
+    """Return a dependency that accepts only the specified persisted roles."""
+    def dependency(current_user: User = Depends(get_current_user)) -> User:
+        if current_user.role not in roles:
+            raise AppException(
+                "You do not have permission to perform this action",
+                status_code=403,
+                error_code="FORBIDDEN",
             )
         return current_user
 

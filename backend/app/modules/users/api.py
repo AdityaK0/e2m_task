@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import require_permissions
+from app.dependencies import require_permissions, require_roles
 from app.modules.auth.permissions import Permission
 from app.modules.users.models import Role, User
 from app.modules.users.schema import (
@@ -12,6 +12,7 @@ from app.modules.users.schema import (
     UserOption,
     UserResponse,
     UserUpdateRequest,
+    RoleUpdateRequest,
 )
 from app.modules.users.service import UserService
 
@@ -21,9 +22,9 @@ users_router = APIRouter(prefix="/users", tags=["Users"])
 @users_router.get("/options", response_model=list[UserOption])
 def list_user_options(
     db: Session = Depends(get_db),
-    _current_user: User = Depends(require_permissions(Permission.CUSTOMERS_READ)),
+    _current_user: User = Depends(require_roles(Role.ADMIN)),
 ):
-    """Active admins/CSMs for the customer "assigned manager" picker."""
+    """Active managers available for customer assignment."""
     return UserService(db).list_assignable()
 
 
@@ -35,7 +36,7 @@ def list_users(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
-    _current_user: User = Depends(require_permissions(Permission.USERS_READ)),
+    _current_user: User = Depends(require_roles(Role.ADMIN)),
 ):
     return UserService(db).list_users(
         search=search,
@@ -50,7 +51,7 @@ def list_users(
 def create_user(
     data: UserCreateRequest,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(require_permissions(Permission.USERS_MANAGE)),
+    _current_user: User = Depends(require_roles(Role.ADMIN)),
 ):
     user = UserService(db).create_user(data)
     return UserResponse.model_validate(user)
@@ -60,7 +61,7 @@ def create_user(
 def get_user(
     user_id: int,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(require_permissions(Permission.USERS_READ)),
+    _current_user: User = Depends(require_roles(Role.ADMIN)),
 ):
     return UserResponse.model_validate(UserService(db).get_or_404(user_id))
 
@@ -70,17 +71,29 @@ def update_user(
     user_id: int,
     data: UserUpdateRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permissions(Permission.USERS_MANAGE)),
+    current_user: User = Depends(require_roles(Role.ADMIN)),
 ):
     user = UserService(db).update_user(user_id, data, current_user)
     return UserResponse.model_validate(user)
+
+
+@users_router.patch("/{user_id}/role", response_model=UserResponse)
+def update_user_role(
+    user_id: int,
+    data: RoleUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(Role.ADMIN)),
+):
+    return UserResponse.model_validate(
+        UserService(db).update_user(user_id, UserUpdateRequest(role=data.role), current_user)
+    )
 
 
 @users_router.post("/{user_id}/revoke-sessions", response_model=MessageResponse)
 def revoke_sessions(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permissions(Permission.USERS_MANAGE)),
+    current_user: User = Depends(require_roles(Role.ADMIN)),
 ):
     count = UserService(db).revoke_sessions(user_id, current_user)
     return MessageResponse(message=f"Revoked {count} active session(s).")

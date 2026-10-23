@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -15,6 +15,30 @@ class CustomerStatus(str, Enum):
     ACTIVE = "active"
     AT_RISK = "at_risk"
     CHURNED = "churned"
+
+
+class CustomerManager(BaseModel):
+    __tablename__ = "customer_managers"
+    __table_args__ = (
+        UniqueConstraint("customer_id", "manager_id", name="uq_customer_manager"),
+        Index("ix_customer_managers_customer_id", "customer_id"),
+        Index("ix_customer_managers_manager_id", "manager_id"),
+    )
+
+    customer_id: Mapped[int] = mapped_column(
+        ForeignKey("customers.id", ondelete="CASCADE"), nullable=False
+    )
+    manager_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    assigned_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    customer: Mapped["Customer"] = relationship(back_populates="manager_assignments")
+    manager: Mapped["User"] = relationship(
+        back_populates="customer_assignments", foreign_keys=[manager_id]
+    )
+    assigner: Mapped["User | None"] = relationship(foreign_keys=[assigned_by])
 
 
 class Customer(BaseModel, SoftDeleteMixin):
@@ -47,15 +71,16 @@ class Customer(BaseModel, SoftDeleteMixin):
         index=True,
     )
     health_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    assigned_manager_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"),
-        nullable=True,
-        index=True,
-    )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    assigned_manager: Mapped["User | None"] = relationship(foreign_keys=[assigned_manager_id])
+    manager_assignments: Mapped[list[CustomerManager]] = relationship(
+        back_populates="customer", cascade="all, delete-orphan", passive_deletes=True
+    )
     interactions: Mapped[list["Interaction"]] = relationship(
         back_populates="customer",
         passive_deletes=True,
     )
+
+    @property
+    def assigned_managers(self):
+        return [assignment.manager for assignment in self.manager_assignments]

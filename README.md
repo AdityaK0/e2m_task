@@ -1,4 +1,4 @@
-# Northstar Customer Success Platform
+# E2M Client Insights
 
 A production-minded customer success workspace for B2B teams: manage accounts, log interactions, monitor account health, and turn meeting notes into structured AI insights.
 
@@ -7,8 +7,8 @@ Built for the 48-hour technical assessment with a FastAPI/PostgreSQL/Redis backe
 ## What is included
 
 - JWT authentication with short-lived access tokens and rotating refresh sessions.
-- Role-based access control: `admin`, `csm`, `viewer`.
-- Customer CRUD with assignment, status, health score, notes, search, filters, and pagination.
+- Role-based access control: `admin` and `manager`.
+- Customer CRUD with many-to-many manager assignment, status, health score, notes, search, filters, and pagination.
 - Interaction CRUD with participants, notes versioning, search, filters, and date ranges.
 - AI meeting insights: summary, sentiment, action items, risks, provider/model metadata.
 - Insight staleness detection when meeting notes change.
@@ -17,7 +17,7 @@ Built for the 48-hour technical assessment with a FastAPI/PostgreSQL/Redis backe
 - Responsive UI with accessible forms, loading/empty/error states, and confirmations.
 - Seeded demo workspace for a fast first run.
 - Docker Compose stack with PostgreSQL, Redis, API, seed job, and frontend.
-- 55 backend tests (pytest) and a passing frontend production build.
+- Backend pytest coverage for auth, RBAC, assignments, customer/interaction access, caching, migrations, and AI insights.
 
 ## Quick start (Docker Compose)
 
@@ -45,8 +45,8 @@ Seeded accounts:
 | Role | Email | Password |
 |---|---|---|
 | Admin | `admin@example.com` | `AdminPass123!` |
-| CSM | `csm@example.com` | `DemoPass123!` |
-| Viewer | `viewer@example.com` | `DemoPass123!` |
+| Manager | `csm@example.com` | `DemoPass123!` |
+| Manager | `viewer@example.com` | `DemoPass123!` |
 
 To try live AI insights, add an `AI_API_KEY` to `.env` and recreate the backend:
 
@@ -97,7 +97,16 @@ Then:
 .\venv\Scripts\python.exe -m uvicorn app.main:app --reload
 ```
 
-`backend/.env.example` includes bootstrap-admin and demo-data switches. Seeding never fabricates insights; generate them through the real provider.
+`backend/.env.example` includes bootstrap-admin and demo-data switches. The API entrypoint applies Alembic migrations before the API/seed services start. Seeding never fabricates insights; generate them through the real provider.
+
+After installing backend dependencies and the local CLI (`pip install -r requirements.txt` and `pip install -e .`), use these commands from the backend environment:
+
+```powershell
+e2m createadmin
+e2m create-seed
+```
+
+`createadmin` interactively prompts for an email and password (with hidden, confirmed password input). It creates a new admin and refuses to promote or overwrite an existing account. `create-seed` runs the demo seed data defined in `backend/app/seed.py`; it is safe to repeat and skips customer seeding when customers already exist. Apply migrations first with `python -m alembic upgrade head`.
 
 ### 3. Frontend
 
@@ -162,7 +171,7 @@ e2m_task/
 
 Backend modules follow a consistent `api.py` / `service.py` / `repository.py` / `models.py` / `schema.py` split. Business rules live in services; HTTP concerns stay in routers.
 
-Frontend uses the Next.js App Router, React 19, Redux Toolkit for auth only, and local component state for page data. Access tokens are kept in memory; refresh tokens live in HttpOnly cookies.
+Frontend uses the Next.js App Router, React 19, Redux Toolkit for auth and customer mutations, and local component state for page-specific data. Access tokens are kept in memory; refresh tokens live in HttpOnly cookies.
 
 ## API overview
 
@@ -173,8 +182,9 @@ Base path: `/api/v1`
 | Auth | `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `POST /auth/logout-all` |
 | Profile | `GET /auth/me`, `PATCH /auth/me`, `POST /auth/change-password` |
 | Config | `GET /auth/config`, `GET /auth/roles` |
-| Users | `GET /users`, `POST /users`, `GET /users/{id}`, `PATCH /users/{id}`, `GET /users/options`, `POST /users/{id}/revoke-sessions` |
+| Users (admin) | `GET /users`, `POST /users`, `GET /users/{id}`, `PATCH /users/{id}`, `PATCH /users/{id}/role`, `GET /users/options`, `POST /users/{id}/revoke-sessions` |
 | Customers | `GET /customers`, `POST /customers`, `GET /customers/{id}`, `PATCH /customers/{id}`, `DELETE /customers/{id}` |
+| Customer assignments (admin) | `GET /customers/{id}/managers`, `POST /customers/{id}/managers`, `DELETE /customers/{id}/managers/{manager_id}`, `POST /customers/assignments`, `DELETE /customers/assignments` |
 | Interactions | `GET /interactions`, `POST /interactions`, `GET /interactions/{id}`, `PATCH /interactions/{id}`, `DELETE /interactions/{id}` |
 | Insights | `GET /interactions/{id}/insights`, `POST /interactions/{id}/insights`, `GET /insights/config` |
 | Dashboard | `GET /dashboard/summary` |
@@ -190,19 +200,39 @@ Errors use a consistent JSON envelope with a machine-readable `error_code` where
 - Login attempts are rate-limited through Redis.
 - CORS is restricted to configured origins and credentials are allowed only for them.
 - Production mode rejects wildcard CORS and insecure cookie settings.
-- Customer deletion is admin-only soft deletion; interaction deletion is CSM/admin soft deletion.
+- Customer deletion is admin-only soft deletion; interaction deletion is admin-only soft deletion.
 - AI meeting notes are delimited and treated as untrusted data. Provider output is schema-validated before persistence.
 
 ### RBAC summary
 
-| Capability | Admin | CSM | Viewer |
-|---|---|---|---|
-| Read workspace/dashboard | Yes | Yes | Yes |
-| Create/edit customers | Yes | Yes | No |
-| Delete customers | Yes | No | No |
-| Create/edit/delete interactions | Yes | Yes | No |
-| Generate AI insights | Yes | Yes | No |
-| Manage users/roles | Yes | No | No |
+Customers are client records, never login identities. The only user roles are `admin` and `manager`; public registration cannot select a role and creates managers. Bootstrap an administrator using `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD`.
+
+| Capability | Admin | Manager |
+|---|---|---|
+| Read dashboard and all customers | Yes | No |
+| Read/update assigned customers | Yes | Yes |
+| Create customers | Yes | Yes (automatically assigned to creator) |
+| Delete customers | Yes | No |
+| Read/create/update interactions on accessible customers | Yes | Yes |
+| Delete interactions | Yes | No |
+| Manage users/roles and customer assignments | Yes | No |
+| Enable auto-assignment for future customers | Yes | No |
+
+Customer visibility is enforced by a shared backend query access filter, including interaction, insight, and dashboard queries. An inaccessible or soft-deleted customer (and its interactions) returns 404. Admins see all non-deleted customers; managers see only customers linked to them.
+
+### Customer assignment and auto-assignment
+
+The `customer_managers` table models the many-to-many customer/manager relationship. It stores `customer_id`, `manager_id`, nullable `assigned_by`, and `created_at`; `(customer_id, manager_id)` is unique, both foreign keys are indexed, and deleting either related row cascades the assignment. Customers use `deleted_at` for soft deletion; normal reads exclude deleted customers.
+
+Admins can assign managers through the per-customer endpoints or bulk endpoints. Bulk requests accept exactly one of `customer_ids` or `all: true`; `all` selects all non-deleted customers. Repeated assignments are idempotent and responses report assigned/skipped counts. Bulk unassignment uses the same request shape. Explicit `customer_ids` must all identify existing, non-deleted customers. Assignment targets must be active users with the manager role.
+
+Managers creating a customer are assigned to it automatically. On every customer creation, opted-in active managers (`auto_assign_new_customers=true`) are also assigned synchronously in the same database transaction as the customer insert. Conflict-safe assignment creation deduplicates creator/opt-in overlap. Doing this in-transaction means assignments are visible immediately and avoids stale visibility or introducing a background-job system. Changing the opt-in flag applies to future customers only; it does not backfill existing customers.
+
+Only admins can change roles or the auto-assignment flag. Promoting a manager to admin clears their assignments and resets auto-assignment to false. Demoting an admin to manager does not grant assignments. The last active admin cannot be demoted or deactivated. Setting `auto_assign_new_customers=true` for an admin is rejected.
+
+### Dashboard cache
+
+Dashboard summaries have a five-minute TTL and are isolated under `dashboard:admin` and `dashboard:manager:{user_id}`. A centralized invalidation helper deletes the admin key and affected manager keys after the database transaction commits. Customer mutations invalidate the customer-list version and affected dashboards; interaction/insight mutations invalidate dashboards for managers assigned to that customer; assignment changes invalidate the manager and admin; role and auto-assignment changes invalidate the affected user's dashboard. Cache invalidation is never performed before a successful commit.
 
 ## AI insight behavior
 

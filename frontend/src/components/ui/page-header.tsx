@@ -22,28 +22,28 @@ export function PageHeader({
   className?: string;
 }) {
   return (
-    <div className={cn("mb-6 animate-fade-in", className)}>
+    <div className={cn("mb-8 animate-fade-in", className)}>
       {backHref ? (
         <Link
           href={backHref}
-          className="mb-3 inline-flex items-center gap-1.5 text-xs font-medium text-ink-500 transition hover:text-brand-700"
+          className="mb-4 inline-flex items-center gap-1.5 text-xs font-medium text-ink-500 transition hover:text-ink-900"
         >
           <ArrowLeft className="size-3.5" />
           {backLabel}
         </Link>
       ) : null}
-      <div className="flex flex-wrap items-end justify-between gap-4">
+      <div className="flex flex-wrap items-end justify-between gap-5">
         <div className="min-w-0">
           {eyebrow ? (
-            <p className="mb-1 text-[11px] font-semibold tracking-[0.14em] text-brand-600 uppercase">
+            <p className="mb-2 text-[11px] font-semibold tracking-[0.14em] text-ink-400 uppercase">
               {eyebrow}
             </p>
           ) : null}
-          <h1 className="text-2xl font-semibold tracking-tight text-ink-900 sm:text-[28px]">
+          <h1 className="text-[28px] leading-tight font-semibold tracking-[-0.035em] text-balance text-ink-950 sm:text-[32px]">
             {title}
           </h1>
           {description ? (
-            <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-ink-500">
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-500">
               {description}
             </p>
           ) : null}

@@ -1,12 +1,13 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 from app.modules.customers.models import CustomerStatus
 from app.modules.users.schema import UserSummary
 
 
 class CustomerCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=200)
     company: str | None = Field(default=None, max_length=200)
     contact_name: str | None = Field(default=None, max_length=160)
@@ -16,7 +17,7 @@ class CustomerCreateRequest(BaseModel):
     website: str | None = Field(default=None, max_length=255)
     status: CustomerStatus = CustomerStatus.PROSPECT
     health_score: int | None = Field(default=None, ge=0, le=100)
-    assigned_manager_id: int | None = None
+    manager_ids: list[int] = Field(default_factory=list, max_length=500)
     notes: str | None = Field(default=None, max_length=20000)
 
     @field_validator("name")
@@ -32,8 +33,18 @@ class CustomerCreateRequest(BaseModel):
     def empty_email(cls, value: EmailStr | None) -> EmailStr | None:
         return value or None
 
+    @field_validator("manager_ids")
+    @classmethod
+    def unique_managers(cls, value: list[int]) -> list[int]:
+        if any(manager_id <= 0 for manager_id in value):
+            raise ValueError("Manager IDs must be positive")
+        if len(value) != len(set(value)):
+            raise ValueError("Manager IDs must be unique")
+        return value
+
 
 class CustomerUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     name: str | None = Field(default=None, min_length=1, max_length=200)
     company: str | None = Field(default=None, max_length=200)
     contact_name: str | None = Field(default=None, max_length=160)
@@ -43,7 +54,6 @@ class CustomerUpdateRequest(BaseModel):
     website: str | None = Field(default=None, max_length=255)
     status: CustomerStatus | None = None
     health_score: int | None = Field(default=None, ge=0, le=100)
-    assigned_manager_id: int | None = None
     notes: str | None = Field(default=None, max_length=20000)
 
     @field_validator("name")
@@ -70,8 +80,7 @@ class CustomerResponse(BaseModel):
     website: str | None
     status: CustomerStatus
     health_score: int | None
-    assigned_manager_id: int | None
-    assigned_manager: UserSummary | None = None
+    assigned_managers: list[UserSummary] = Field(default_factory=list)
     notes: str | None
     created_at: datetime
     updated_at: datetime
@@ -89,3 +98,29 @@ class CustomerListResponse(BaseModel):
     page: int
     page_size: int
     pages: int
+
+
+class ManagerAssignmentRequest(BaseModel):
+    manager_id: int = Field(gt=0)
+
+
+class BulkAssignmentRequest(BaseModel):
+    manager_id: int = Field(gt=0)
+    customer_ids: list[int] | None = Field(default=None, min_length=1, max_length=5000)
+    all: bool | None = None
+
+    @model_validator(mode="after")
+    def exactly_one_target(self) -> "BulkAssignmentRequest":
+        if (self.customer_ids is None) == (self.all is None):
+            raise ValueError("Provide exactly one of customer_ids or all")
+        if self.all is False:
+            raise ValueError("all must be true when provided")
+        if self.customer_ids is not None and len(set(self.customer_ids)) != len(self.customer_ids):
+            raise ValueError("Customer IDs must be unique")
+        return self
+
+
+class BulkAssignmentResponse(BaseModel):
+    assigned: int = 0
+    unassigned: int = 0
+    skipped: int

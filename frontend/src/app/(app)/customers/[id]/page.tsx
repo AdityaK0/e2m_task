@@ -1,16 +1,18 @@
 "use client";
 
 import {
+  Activity,
+  ArrowUpRight,
   Building2,
   CalendarDays,
   ExternalLink,
   Globe,
+  Lightbulb,
   Mail,
   MessageSquareText,
   Pencil,
   Phone,
   Plus,
-  Sparkles,
   Trash2,
   UserRound,
 } from "lucide-react";
@@ -27,16 +29,24 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
+import { Select } from "@/components/ui/field";
 import { LoadingPanel } from "@/components/ui/spinner";
 import {
   CustomerStatusBadge,
   InteractionTypeBadge,
 } from "@/components/ui/status-badges";
 import { usePermissions } from "@/features/auth/hooks";
+import {
+  assignCustomerManager,
+  deleteCustomer,
+  unassignCustomerManager,
+} from "@/features/customers/customersSlice";
+import { useAppDispatch } from "@/store/hooks";
 import { customersApi } from "@/lib/api/customers";
 import { getApiError } from "@/lib/api/errors";
 import { interactionsApi } from "@/lib/api/interactions";
-import type { CustomerDetail, Interaction } from "@/lib/api/types";
+import type { CustomerDetail, Interaction, UserOption } from "@/lib/api/types";
+import { usersApi } from "@/lib/api/users";
 import { formatDate, formatDateTime, formatRelative } from "@/lib/utils";
 
 function InfoRow({
@@ -62,6 +72,7 @@ function InfoRow({
 export default function CustomerDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const dispatch = useAppDispatch();
   const { canDo } = usePermissions();
   const customerId = Number(params.id);
 
@@ -71,6 +82,9 @@ export default function CustomerDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [managerOptions, setManagerOptions] = useState<UserOption[]>([]);
+  const [selectedManagerId, setSelectedManagerId] = useState("");
+  const isAdmin = canDo("users:manage");
 
   useEffect(() => {
     let cancelled = false;
@@ -100,11 +114,31 @@ export default function CustomerDetailPage() {
     };
   }, [customerId]);
 
+  useEffect(() => {
+    if (!isAdmin) return;
+    usersApi.options().then(setManagerOptions).catch((err) => toast.error(getApiError(err)));
+  }, [isAdmin]);
+
+  const changeManager = async (managerId: number, assign: boolean) => {
+    if (!customer) return;
+    try {
+      if (assign) {
+        await dispatch(assignCustomerManager({ customerId: customer.id, managerId })).unwrap();
+      } else {
+        await dispatch(unassignCustomerManager({ customerId: customer.id, managerId })).unwrap();
+      }
+      setCustomer(await customersApi.get(customer.id));
+      toast.success(assign ? "Manager assigned" : "Manager unassigned");
+    } catch (err) {
+      toast.error(getApiError(err));
+    }
+  };
+
   const handleDelete = async () => {
     if (!customer) return;
     setDeleting(true);
     try {
-      await customersApi.remove(customer.id);
+      await dispatch(deleteCustomer(customer.id)).unwrap();
       toast.success(`${customer.name} deleted`);
       router.push("/customers");
     } catch (err) {
@@ -133,16 +167,22 @@ export default function CustomerDetailPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Customer account"
+        eyebrow="Customer"
         backHref="/customers"
-        backLabel="Back to customers"
+        backLabel="All customers"
         title={
           <span className="flex flex-wrap items-center gap-3">
             {customer.name}
             <CustomerStatusBadge status={customer.status} />
           </span>
         }
-        description={customer.company || "No company set"}
+        description={[
+          customer.company,
+          customer.industry,
+          customer.assigned_managers.map((manager) => manager.name).join(", "),
+        ]
+          .filter(Boolean)
+          .join(" · ") || "No company or industry set"}
         actions={
           <>
             {canDo("interactions:write") ? (
@@ -151,7 +191,7 @@ export default function CustomerDetailPage() {
                 className={buttonStyles({ variant: "secondary" })}
               >
                 <Plus className="size-4" />
-                Add interaction
+                Add meeting
               </Link>
             ) : null}
             {canDo("customers:write") ? (
@@ -184,11 +224,6 @@ export default function CustomerDetailPage() {
             <CardHeader
               title="Account overview"
               description="Primary contact and ownership details"
-              action={
-                <div className="flex size-9 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
-                  <Building2 className="size-4" />
-                </div>
-              }
             />
             <CardContent className="grid gap-x-8 sm:grid-cols-2">
               <div className="divide-y divide-ink-100">
@@ -199,7 +234,7 @@ export default function CustomerDetailPage() {
                   {customer.contact_email ? (
                     <a
                       href={`mailto:${customer.contact_email}`}
-                      className="text-brand-700 hover:underline"
+                      className="underline decoration-ink-300 underline-offset-4 transition hover:decoration-ink-900"
                     >
                       {customer.contact_email}
                     </a>
@@ -211,7 +246,7 @@ export default function CustomerDetailPage() {
                   {customer.contact_phone ? (
                     <a
                       href={`tel:${customer.contact_phone}`}
-                      className="text-brand-700 hover:underline"
+                      className="underline decoration-ink-300 underline-offset-4 transition hover:decoration-ink-900"
                     >
                       {customer.contact_phone}
                     </a>
@@ -227,7 +262,7 @@ export default function CustomerDetailPage() {
                       href={website}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-brand-700 hover:underline"
+                      className="inline-flex items-center gap-1 underline decoration-ink-300 underline-offset-4 transition hover:decoration-ink-900"
                     >
                       {customer.website}
                       <ExternalLink className="size-3" />
@@ -239,16 +274,57 @@ export default function CustomerDetailPage() {
                 <InfoRow icon={Building2} label="Industry">
                   {customer.industry || "Not set"}
                 </InfoRow>
-                <InfoRow icon={UserRound} label="Account manager">
-                  {customer.assigned_manager ? (
-                    <span className="flex items-center gap-2">
-                      <Avatar name={customer.assigned_manager.name} size="sm" />
-                      {customer.assigned_manager.name}
+                <InfoRow icon={UserRound} label="Assigned managers">
+                  {customer.assigned_managers.length > 0 ? (
+                    <span className="flex flex-wrap gap-2">
+                      {customer.assigned_managers.map((manager) => (
+                        <span key={manager.id} className="flex items-center gap-2">
+                          <Avatar name={manager.name} size="sm" />
+                          {manager.name}
+                        </span>
+                      ))}
                     </span>
                   ) : (
                     "Unassigned"
                   )}
                 </InfoRow>
+                {isAdmin ? (
+                  <div className="flex flex-wrap items-center gap-2 py-3">
+                    <Select
+                      aria-label="Choose manager"
+                      value={selectedManagerId}
+                      onChange={(event) => setSelectedManagerId(event.target.value)}
+                      className="min-w-44"
+                    >
+                      <option value="">Choose manager</option>
+                      {managerOptions
+                        .filter((manager) => !customer.assigned_managers.some((assigned) => assigned.id === manager.id))
+                        .map((manager) => (
+                          <option key={manager.id} value={manager.id}>{manager.name}</option>
+                        ))}
+                    </Select>
+                    <Button
+                      variant="secondary"
+                      disabled={!selectedManagerId}
+                      onClick={() => {
+                        void changeManager(Number(selectedManagerId), true);
+                        setSelectedManagerId("");
+                      }}
+                    >
+                      Manage managers
+                    </Button>
+                    {customer.assigned_managers.map((manager) => (
+                      <Button
+                        key={manager.id}
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => void changeManager(manager.id, false)}
+                      >
+                        Remove {manager.name}
+                      </Button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             </CardContent>
           </Card>
@@ -271,23 +347,24 @@ export default function CustomerDetailPage() {
 
           <Card>
             <CardHeader
-              title="Recent interactions"
+              title="Recent meetings"
               description={`${customer.interaction_count} total ${
-                customer.interaction_count === 1 ? "interaction" : "interactions"
+                customer.interaction_count === 1 ? "meeting" : "meetings"
               }`}
               action={
                 <Link
                   href={`/interactions?customer_id=${customer.id}`}
-                  className="text-xs font-medium text-brand-700 hover:underline"
+                  className="inline-flex items-center gap-1 text-xs font-medium text-ink-500 transition-colors hover:text-ink-900"
                 >
                   View all
+                  <ArrowUpRight className="size-3" />
                 </Link>
               }
             />
             {interactions.length === 0 ? (
               <EmptyState
                 icon={<MessageSquareText className="size-5" />}
-                title="No interactions yet"
+                title="No meetings yet"
                 description="Log a meeting or call to capture notes and generate AI insights."
                 action={
                   canDo("interactions:write") ? (
@@ -296,7 +373,7 @@ export default function CustomerDetailPage() {
                       className={buttonStyles()}
                     >
                       <Plus className="size-4" />
-                      Add interaction
+                      Add meeting
                     </Link>
                   ) : null
                 }
@@ -307,9 +384,9 @@ export default function CustomerDetailPage() {
                   <Link
                     key={interaction.id}
                     href={`/interactions/${interaction.id}`}
-                    className="flex items-start gap-3 px-5 py-4 transition hover:bg-ink-50"
+                    className="flex items-start gap-3 px-5 py-3.5 transition-colors hover:bg-ink-50/80"
                   >
-                    <div className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl border border-ink-200 bg-white">
+                    <div className="mt-0.5 flex size-9 shrink-0 items-center justify-center  border border-ink-200 bg-ink-50/60">
                       <MessageSquareText className="size-4 text-ink-500" />
                     </div>
                     <div className="min-w-0 flex-1">
@@ -333,17 +410,27 @@ export default function CustomerDetailPage() {
 
         <div className="space-y-6">
           <Card>
-            <CardHeader title="Account health" description="Current success signal" />
+            <CardHeader
+              title="Account health"
+              description="Current success signal"
+              action={
+                <span className="flex size-8 items-center justify-center  border border-ink-200 text-ink-500">
+                  <Activity className="size-4" />
+                </span>
+              }
+            />
             <CardContent>
-              <div className="flex items-end justify-between">
+              <div className="flex items-end justify-between gap-4">
                 <div>
-                  <p className="text-4xl font-semibold tracking-tight text-ink-900">
+                  <p className="text-[38px] leading-none font-semibold tracking-[-0.04em] text-ink-950">
                     {customer.health_score ?? "—"}
                     {customer.health_score !== null ? (
-                      <span className="ml-1 text-sm font-normal text-ink-400">/ 100</span>
+                      <span className="ml-1 text-sm font-normal text-ink-400">
+                        / 100
+                      </span>
                     ) : null}
                   </p>
-                  <p className="mt-1 text-xs text-ink-500">
+                  <p className="mt-2 text-xs text-ink-500">
                     {customer.health_score === null
                       ? "Not assessed"
                       : customer.health_score >= 70
@@ -353,57 +440,59 @@ export default function CustomerDetailPage() {
                           : "Needs attention"}
                   </p>
                 </div>
-                <div className="flex size-10 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
-                  <Sparkles className="size-4" />
-                </div>
               </div>
-              <div className="mt-4">
+              <div className="mt-5">
                 <HealthIndicator score={customer.health_score} />
               </div>
-            </CardContent>
-          </Card>
 
-          <Card>
-            <CardHeader title="At a glance" />
-            <CardContent className="space-y-3">
-              <div className="flex items-center justify-between rounded-xl border border-ink-100 px-3.5 py-2.5">
-                <span className="flex items-center gap-2 text-xs text-ink-500">
-                  <MessageSquareText className="size-3.5" />
-                  Interactions
-                </span>
-                <span className="text-sm font-semibold text-ink-900">
-                  {customer.interaction_count}
-                </span>
+              <div className="mt-5 divide-y divide-ink-100 border-t border-ink-100">
+                <div className="flex items-center justify-between py-3">
+                  <span className="flex items-center gap-2 text-xs text-ink-500">
+                    <MessageSquareText className="size-3.5 text-ink-400" />
+                    Meetings
+                  </span>
+                  <span className="text-xs font-semibold text-ink-900">
+                    {customer.interaction_count}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between py-3">
+                  <span className="flex items-center gap-2 text-xs text-ink-500">
+                    <Lightbulb className="size-3.5 text-ink-400" />
+                    AI insights
+                  </span>
+                  <span className="text-xs font-semibold text-ink-900">
+                    {customer.insight_count}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between py-3">
+                  <span className="flex items-center gap-2 text-xs text-ink-500">
+                    <CalendarDays className="size-3.5 text-ink-400" />
+                    Last meeting
+                  </span>
+                  <span className="text-xs font-medium text-ink-700">
+                    {customer.last_interaction_at
+                      ? formatRelative(customer.last_interaction_at)
+                      : "None"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between py-3">
+                  <span className="flex items-center gap-2 text-xs text-ink-500">
+                    <CalendarDays className="size-3.5 text-ink-400" />
+                    Customer since
+                  </span>
+                  <span className="text-xs font-medium text-ink-700">
+                    {formatDate(customer.created_at)}
+                  </span>
+                </div>
               </div>
-              <div className="flex items-center justify-between rounded-xl border border-ink-100 px-3.5 py-2.5">
-                <span className="flex items-center gap-2 text-xs text-ink-500">
-                  <Sparkles className="size-3.5" />
-                  AI insights
-                </span>
-                <span className="text-sm font-semibold text-ink-900">
-                  {customer.insight_count}
-                </span>
-              </div>
-              <div className="flex items-center justify-between rounded-xl border border-ink-100 px-3.5 py-2.5">
-                <span className="flex items-center gap-2 text-xs text-ink-500">
-                  <CalendarDays className="size-3.5" />
-                  Last interaction
-                </span>
-                <span className="text-xs font-medium text-ink-700">
-                  {customer.last_interaction_at
-                    ? formatRelative(customer.last_interaction_at)
-                    : "None"}
-                </span>
-              </div>
-              <div className="flex items-center justify-between rounded-xl border border-ink-100 px-3.5 py-2.5">
-                <span className="flex items-center gap-2 text-xs text-ink-500">
-                  <CalendarDays className="size-3.5" />
-                  Customer since
-                </span>
-                <span className="text-xs font-medium text-ink-700">
-                  {formatDate(customer.created_at)}
-                </span>
-              </div>
+
+              <Link
+                href="/insights"
+                className="mt-2 flex items-center justify-between  border border-ink-100 bg-ink-50/60 px-3.5 py-3 text-xs font-medium text-ink-700 transition-colors hover:border-ink-200 hover:bg-ink-50"
+              >
+                Review AI insights
+                <ArrowUpRight className="size-3.5 text-ink-400" />
+              </Link>
             </CardContent>
           </Card>
         </div>

@@ -1,11 +1,13 @@
 import { configureStore } from "@reduxjs/toolkit";
 
 import authReducer from "@/features/auth/authSlice";
+import customersReducer from "@/features/customers/customersSlice";
 
 export function makeStore() {
   return configureStore({
     reducer: {
       auth: authReducer,
+      customers: customersReducer,
     },
   });
 }

@@ -110,7 +110,7 @@ def client(fake_provider):
 def make_user(db):
     def _make(
         email: str,
-        role: Role = Role.VIEWER,
+        role: Role = Role.MANAGER,
         password: str = "Password123!",
         name: str | None = None,
         is_active: bool = True,

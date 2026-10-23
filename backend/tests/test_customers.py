@@ -9,7 +9,7 @@ from .conftest import auth_headers, customer_payload, login
 
 
 def _csm(make_user):
-    return make_user("csm@example.com", role=Role.CSM, name="Casey Manager")
+    return make_user("csm@example.com", role=Role.MANAGER, name="Casey Manager")
 
 
 def _admin(make_user):
@@ -22,7 +22,7 @@ def test_create_customer_and_detail_counts(client, make_user):
 
     response = client.post(
         "/api/v1/customers",
-        json=customer_payload(assigned_manager_id=csm.id),
+        json=customer_payload(),
         headers=auth_headers(token),
     )
     assert response.status_code == 201, response.text
@@ -30,7 +30,7 @@ def test_create_customer_and_detail_counts(client, make_user):
     assert customer["name"] == "Acme Corp"
     assert customer["status"] == "active"
     assert customer["health_score"] == 80
-    assert customer["assigned_manager"]["id"] == csm.id
+    assert customer["assigned_managers"][0]["id"] == csm.id
 
     detail = client.get(
         f"/api/v1/customers/{customer['id']}", headers=auth_headers(token)
@@ -102,7 +102,7 @@ def test_customer_list_filters_search_sorting_and_pagination(client, make_user):
 
 def test_customer_validation_and_assignment_rules(client, make_user):
     csm = _csm(make_user)
-    viewer = make_user("viewer@example.com", role=Role.VIEWER)
+    viewer = make_user("viewer@example.com", role=Role.MANAGER)
     token, _ = login(client, csm.email, csm.password)
 
     invalid_score = client.post(
@@ -121,24 +121,24 @@ def test_customer_validation_and_assignment_rules(client, make_user):
 
     viewer_manager = client.post(
         "/api/v1/customers",
-        json=customer_payload(assigned_manager_id=viewer.id),
+        json=customer_payload(manager_ids=[viewer.id]),
         headers=auth_headers(token),
     )
-    assert viewer_manager.status_code == 422
-    assert viewer_manager.json()["error_code"] == "INVALID_ASSIGNED_MANAGER"
+    assert viewer_manager.status_code == 403
+    assert viewer_manager.json()["error_code"] == "FORBIDDEN"
 
     missing_manager = client.post(
         "/api/v1/customers",
-        json=customer_payload(assigned_manager_id=99999),
+        json=customer_payload(manager_ids=[99999]),
         headers=auth_headers(token),
     )
-    assert missing_manager.status_code == 422
-    assert missing_manager.json()["error_code"] == "INVALID_ASSIGNED_MANAGER"
+    assert missing_manager.status_code == 403
+    assert missing_manager.json()["error_code"] == "FORBIDDEN"
 
 
 def test_customer_update_and_viewer_read_access(client, make_user):
     csm = _csm(make_user)
-    viewer = make_user("viewer@example.com", role=Role.VIEWER)
+    viewer = make_user("viewer@example.com", role=Role.MANAGER)
     csm_token, _ = login(client, csm.email, csm.password)
     viewer_token, _ = login(client, viewer.email, viewer.password)
 
@@ -161,15 +161,14 @@ def test_customer_update_and_viewer_read_access(client, make_user):
     read = client.get(
         f"/api/v1/customers/{created['id']}", headers=auth_headers(viewer_token)
     )
-    assert read.status_code == 200
+    assert read.status_code == 404
 
     forbidden_write = client.post(
         "/api/v1/customers",
         json=customer_payload(name="Viewer Created"),
         headers=auth_headers(viewer_token),
     )
-    assert forbidden_write.status_code == 403
-    assert forbidden_write.json()["error_code"] == "FORBIDDEN"
+    assert forbidden_write.status_code == 201
 
     invalid_update = client.patch(
         f"/api/v1/customers/{created['id']}",
@@ -253,7 +252,7 @@ def test_customer_list_cache_hit_and_invalidation(client, make_user, fake_redis)
     )
     assert second.status_code == 201
     assert int(fake_redis.get(cache.CUSTOMER_LIST_VERSION_KEY)) == 2
-    assert int(fake_redis.get(cache.DASHBOARD_VERSION_KEY)) == 2
+    assert fake_redis.get("dashboard:admin") is None
 
     refreshed = client.get("/api/v1/customers", headers=auth_headers(token)).json()
     assert refreshed["total"] == 2

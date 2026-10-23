@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     ``.env.example``). Production configuration is validated below.
     """
 
-    APP_NAME: str = "Customer Success Platform"
+    APP_NAME: str = "E2M Client Insights"
     APP_ENV: Literal["development", "test", "production"] = "development"
     DEBUG: bool = False
     API_V1_PREFIX: str = "/api/v1"

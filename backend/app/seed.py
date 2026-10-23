@@ -13,11 +13,12 @@ import sys
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from app.config import settings
 from app.database import SessionLocal
 from app.modules.auth import models as auth_models  # noqa: F401
-from app.modules.customers.models import Customer, CustomerStatus
+from app.modules.customers.models import Customer, CustomerManager, CustomerStatus
 from app.modules.insights import models as insight_models  # noqa: F401
 from app.modules.interactions.models import Interaction, InteractionType
 from app.modules.users.models import Role, User
@@ -78,6 +79,33 @@ def bootstrap_admin(db) -> User | None:
         sys.exit(1)
 
 
+def create_admin(db, *, email: str, password: str, name: str) -> User:
+    """Create a new administrator without changing an existing account."""
+    normalized_email = normalize_email(email)
+    if db.scalar(select(User.id).where(User.email == normalized_email)) is not None:
+        raise AppException(
+            "An account with this email already exists",
+            status_code=409,
+            error_code="EMAIL_ALREADY_REGISTERED",
+        )
+    validate_password(password)
+    try:
+        return _get_or_create_user(
+            db,
+            email=normalized_email,
+            name=name,
+            password=password,
+            role=Role.ADMIN,
+        )
+    except IntegrityError as exc:
+        db.rollback()
+        raise AppException(
+            "An account with this email already exists",
+            status_code=409,
+            error_code="EMAIL_ALREADY_REGISTERED",
+        ) from exc
+
+
 def seed_demo(db, csm: User, viewer: User) -> None:
     existing = db.scalar(select(Customer).limit(1))
     if existing is not None:
@@ -96,7 +124,6 @@ def seed_demo(db, csm: User, viewer: User) -> None:
             website="https://northwind.example",
             status=CustomerStatus.ACTIVE,
             health_score=84,
-            assigned_manager_id=csm.id,
             notes="Expansion conversation in progress for the EU data warehouse add-on.",
         ),
         Customer(
@@ -109,7 +136,6 @@ def seed_demo(db, csm: User, viewer: User) -> None:
             website="https://acme-robotics.example",
             status=CustomerStatus.AT_RISK,
             health_score=38,
-            assigned_manager_id=csm.id,
             notes="Two critical tickets open; onboarding was delayed by SSO issues.",
         ),
         Customer(
@@ -122,7 +148,6 @@ def seed_demo(db, csm: User, viewer: User) -> None:
             website="https://lumenhealth.example",
             status=CustomerStatus.ONBOARDING,
             health_score=66,
-            assigned_manager_id=csm.id,
             notes="Security review pending before production rollout.",
         ),
         Customer(
@@ -133,7 +158,6 @@ def seed_demo(db, csm: User, viewer: User) -> None:
             industry="Retail",
             status=CustomerStatus.PROSPECT,
             health_score=None,
-            assigned_manager_id=csm.id,
             notes="Inbound from webinar; discovery call not yet booked.",
         ),
     ]
@@ -141,6 +165,8 @@ def seed_demo(db, csm: User, viewer: User) -> None:
     db.commit()
     for customer in customers:
         db.refresh(customer)
+        db.add(CustomerManager(customer_id=customer.id, manager_id=csm.id))
+    db.commit()
 
     northwind, acme, lumen = customers[0], customers[1], customers[2]
     interactions = [
@@ -204,26 +230,31 @@ def seed_demo(db, csm: User, viewer: User) -> None:
     print(f"Seeded {len(customers)} demo customers and {len(interactions)} interactions.")
 
 
+def create_demo_seed(db) -> None:
+    """Create the configured demo managers and seed the demo workspace."""
+    csm = _get_or_create_user(
+        db,
+        email="csm@example.com",
+        name="Dana Okafor",
+        password=DEMO_PASSWORD,
+        role=Role.MANAGER,
+    )
+    viewer = _get_or_create_user(
+        db,
+        email="viewer@example.com",
+        name="Sam Rivera",
+        password=DEMO_PASSWORD,
+        role=Role.MANAGER,
+    )
+    seed_demo(db, csm, viewer)
+
+
 def main() -> None:
     db = SessionLocal()
     try:
         admin = bootstrap_admin(db)
         if settings.SEED_DEMO_DATA:
-            csm = _get_or_create_user(
-                db,
-                email="csm@example.com",
-                name="Dana Okafor",
-                password=DEMO_PASSWORD,
-                role=Role.CSM,
-            )
-            viewer = _get_or_create_user(
-                db,
-                email="viewer@example.com",
-                name="Sam Rivera",
-                password=DEMO_PASSWORD,
-                role=Role.VIEWER,
-            )
-            seed_demo(db, csm, viewer)
+            create_demo_seed(db)
             print(f"Demo users use password: {DEMO_PASSWORD} (local demo only)")
         if admin is None and not settings.SEED_DEMO_DATA:
             print(

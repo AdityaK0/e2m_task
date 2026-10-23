@@ -13,7 +13,7 @@ export function AccessDenied({
 }) {
   return (
     <Card className="mx-auto max-w-lg px-6 py-10 text-center">
-      <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-2xl bg-ink-100 text-ink-500">
+      <div className="mx-auto mb-4 flex size-12 items-center justify-center  bg-ink-100 text-ink-500">
         <LockKeyhole className="size-5" />
       </div>
       <h1 className="text-lg font-semibold text-ink-900">{title}</h1>

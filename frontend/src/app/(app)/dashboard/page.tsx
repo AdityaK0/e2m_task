@@ -1,79 +1,88 @@
 "use client";
 
 import {
-  Activity,
   AlertTriangle,
-  CalendarClock,
-  ChevronRight,
+  ArrowRight,
+  ArrowUpRight,
+  CalendarDays,
   MessageSquareText,
-  Sparkles,
+  Plus,
   Users,
-  Workflow,
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
+import { Button, buttonStyles } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { CustomerStatusBadge, InsightStatusBadge } from "@/components/ui/status-badges";
-import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
+import { CustomerStatusBadge } from "@/components/ui/status-badges";
 import { useAuth } from "@/features/auth/hooks";
 import { dashboardApi } from "@/lib/api/dashboard";
 import type { DashboardSummary } from "@/lib/api/types";
-import { INSIGHT_STATUS_TONES } from "@/lib/labels";
+import { CUSTOMER_STATUS_LABELS } from "@/lib/labels";
 import { formatDateTime, formatRelative } from "@/lib/utils";
-import { toast } from "sonner";
+
+const STATUS_COLORS: Record<string, string> = {
+  active: "bg-emerald-500",
+  at_risk: "bg-amber-500",
+  prospect: "bg-ink-400",
+  onboarding: "bg-brand-500",
+  churned: "bg-rose-500",
+};
+
+const SENTIMENT_COLORS: Record<string, string> = {
+  Positive: "bg-emerald-500",
+  Neutral: "bg-ink-400",
+  Negative: "bg-rose-500",
+};
 
 function Metric({
   label,
   value,
-  icon: Icon,
-  accent = "brand",
+  hint,
   href,
 }: {
   label: string;
   value: number;
-  icon: React.ComponentType<{ className?: string }>;
-  accent?: "brand" | "success" | "warning" | "info";
-  href?: string;
+  hint: string;
+  href: string;
 }) {
-  const accents = {
-    brand: "bg-brand-50 text-brand-600 ring-brand-500/10",
-    success: "bg-emerald-50 text-emerald-600 ring-emerald-500/10",
-    warning: "bg-amber-50 text-amber-600 ring-amber-500/10",
-    info: "bg-sky-50 text-sky-600 ring-sky-500/10",
-  };
-  const content = (
-    <div className="card group flex items-center justify-between gap-4 px-5 py-4 transition-all hover:-translate-y-[1px] hover:shadow-float">
+  return (
+    <Link
+      href={href}
+      className="group relative flex min-w-0 flex-col justify-between gap-8 px-5 py-5 transition-colors   hover:bg-ink-50/70 sm:px-6"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-xs font-medium text-ink-500">{label}</p>
+        <ArrowUpRight className="size-3.5 text-ink-300 transition-colors group-hover:text-ink-600" />
+      </div>
       <div>
-        <p className="text-xs text-ink-500">{label}</p>
-        <p className="mt-2 text-3xl font-semibold tracking-tight text-ink-900">{value}</p>
+        <p className="text-[30px] leading-none font-semibold tracking-[-0.04em] text-ink-950">
+          {value.toLocaleString()}
+        </p>
+        <p className="mt-1.5 text-[11px] text-ink-400">{hint}</p>
       </div>
-      <div
-        className={`flex size-11 items-center justify-center rounded-2xl ring-1 ${accents[accent]}`}
-      >
-        <Icon className="size-5" />
-      </div>
-    </div>
+    </Link>
   );
-  if (href) {
-    return (
-      <Link href={href} className="block">
-        {content}
-      </Link>
-    );
-  }
-  return content;
 }
 
-function Bar({ count, total, className }: { count: number; total: number; className: string }) {
-  const width = total > 0 ? Math.max((count / total) * 100, count > 0 ? 6 : 0) : 0;
+function Bar({
+  count,
+  total,
+  className,
+}: {
+  count: number;
+  total: number;
+  className: string;
+}) {
+  const width = total > 0 ? Math.max((count / total) * 100, count > 0 ? 4 : 0) : 0;
   return (
-    <div className="h-2 overflow-hidden rounded-full bg-ink-100">
+    <div className="h-1.5 overflow-hidden  bg-ink-100">
       <div
-        className={`h-full rounded-full ${className}`}
+        className={`h-full  ${className}`}
         style={{ width: `${width}%` }}
         aria-hidden="true"
       />
@@ -91,7 +100,7 @@ export default function DashboardPage() {
       .summary()
       .then(setData)
       .catch((error) => {
-        toast.error("Failed to load dashboard");
+        toast.error("Failed to load overview");
         console.error(error);
       })
       .finally(() => setLoading(false));
@@ -100,36 +109,43 @@ export default function DashboardPage() {
   const statusTotal = data
     ? data.customers_by_status.reduce((sum, item) => sum + item.count, 0)
     : 0;
+  const sentimentTotal = data
+    ? data.sentiment_distribution.reduce((sum, item) => sum + item.count, 0)
+    : 0;
 
   return (
     <div>
       <PageHeader
         eyebrow="Overview"
         title={`Welcome back, ${user?.name?.split(" ")[0] ?? "there"}`}
-        description="Track account health, recent conversations, and AI insights in one place."
+        description="A clear view of account health, recent meetings, and the follow-ups that need your attention."
         actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="secondary" onClick={() => { window.location.href = "/interactions"; }}>
-              View interactions
-            </Button>
-            <Button leftIcon={<Users className="size-4" />} onClick={() => { window.location.href = "/customers"; }}>
-              Go to customers
-            </Button>
-          </div>
+          <>
+            <Link
+              href="/interactions"
+              className={buttonStyles({ variant: "secondary" })}
+            >
+              View meetings
+            </Link>
+            <Link href="/insights" className={buttonStyles()}>
+              Review insights
+              <ArrowRight className="size-4" />
+            </Link>
+          </>
         }
       />
 
       {loading ? (
         <div className="space-y-6">
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="card grid grid-cols-2 divide-x divide-y divide-ink-100 overflow-hidden xl:grid-cols-4 xl:divide-y-0">
             {Array.from({ length: 4 }).map((_, index) => (
-              <div key={index} className="card h-[104px] px-5 py-4">
+              <div key={index} className="px-6 py-5">
                 <Skeleton className="h-3 w-24" />
-                <Skeleton className="mt-4 h-8 w-16" />
+                <Skeleton className="mt-6 h-8 w-16" />
               </div>
             ))}
           </div>
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
             <div className="card h-80">
               <Skeleton className="mx-5 mt-5 h-4 w-32" />
             </div>
@@ -141,8 +157,8 @@ export default function DashboardPage() {
       ) : !data ? (
         <EmptyState
           icon={<AlertTriangle className="size-5" />}
-          title="Unable to load dashboard"
-          description="The dashboard summary could not be retrieved. Please refresh or check permissions."
+          title="Unable to load your overview"
+          description="The summary could not be retrieved. Please refresh or check your permissions."
           action={
             <Button variant="secondary" onClick={() => window.location.reload()}>
               Retry
@@ -151,294 +167,273 @@ export default function DashboardPage() {
         />
       ) : (
         <div className="space-y-6">
-          <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <section className="card grid grid-cols-2 divide-x divide-y divide-ink-100 overflow-hidden xl:grid-cols-4 xl:divide-y-0">
             <Metric
               label="Total customers"
               value={data.total_customers}
-              icon={Users}
+              hint={`${data.active_customers} active`}
               href="/customers"
             />
             <Metric
-              label="Active customers"
-              value={data.active_customers}
-              icon={Activity}
-              accent="success"
-              href="/customers?status=active"
-            />
-            <Metric
-              label="At-risk customers"
+              label="At risk"
               value={data.at_risk_customers}
-              icon={AlertTriangle}
-              accent="warning"
+              hint="Needs attention"
               href="/customers?status=at_risk"
             />
             <Metric
-              label="Interactions (7d)"
+              label="Meetings this week"
               value={data.interactions_last_7_days}
-              icon={MessageSquareText}
-              accent="info"
+              hint={`${data.total_interactions} total`}
               href="/interactions"
+            />
+            <Metric
+              label="Insights ready"
+              value={data.completed_insights}
+              hint={`${data.insights_needing_review} need review`}
+              href="/insights"
             />
           </section>
 
-          <section className="grid gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)]">
-            <Card className="overflow-hidden">
-              <CardHeader
-                title="Customers by status"
-                description="Distribution across your portfolio"
-              />
-              <CardContent className="space-y-4">
-                {data.customers_by_status.map((item) => {
-                  const label =
-                    item.status === "at_risk"
-                      ? "At risk"
-                      : item.status === "churned"
-                      ? "Churned"
-                      : item.status === "prospect"
-                      ? "Prospect"
-                      : item.status === "onboarding"
-                      ? "Onboarding"
-                      : "Active";
-                  const colors: Record<string, string> = {
-                    active: "bg-emerald-500",
-                    at_risk: "bg-amber-500",
-                    prospect: "bg-sky-500",
-                    onboarding: "bg-violet-500",
-                    churned: "bg-rose-500",
-                  };
-                  return (
-                    <div key={item.status} className="space-y-2">
-                      <div className="flex items-center justify-between text-sm">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={`size-2 rounded-full ${colors[item.status] ?? "bg-ink-400"}`}
-                          />
-                          <span className="text-ink-700">{label}</span>
-                        </div>
-                        <span className="font-medium text-ink-900">{item.count}</span>
-                      </div>
-                      <Bar
-                        count={item.count}
-                        total={statusTotal}
-                        className={colors[item.status] ?? "bg-ink-400"}
-                      />
-                    </div>
-                  );
-                })}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader
-                title="AI insights"
-                description="Generation health across meetings"
-                action={
-                  <Sparkles className="size-4 text-brand-500" />
-                }
-              />
-              <CardContent className="space-y-3">
-            <button
-              type="button"
-              onClick={() => { window.location.href = "/interactions"; }}
-              className="flex w-full items-center justify-between rounded-xl border border-ink-100 px-3.5 py-2.5 transition hover:bg-ink-50"
-            >
-              <div className="flex items-center gap-2">
-                <span className="size-2 rounded-full bg-emerald-500" />
-                <span className="text-sm text-ink-700">Completed</span>
-              </div>
-              <span className="text-sm font-semibold text-ink-900">
-                {data.completed_insights}
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => { window.location.href = "/interactions"; }}
-              className="flex w-full items-center justify-between rounded-xl border border-ink-100 px-3.5 py-2.5 transition hover:bg-ink-50"
-            >
-              <div className="flex items-center gap-2">
-                <span className="size-2 rounded-full bg-rose-500" />
-                <span className="text-sm text-ink-700">Failed</span>
-              </div>
-              <span className="text-sm font-semibold text-ink-900">
-                {data.failed_insights}
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => { window.location.href = "/interactions"; }}
-              className="flex w-full items-center justify-between rounded-xl border border-ink-100 px-3.5 py-2.5 transition hover:bg-ink-50"
-            >
-              <div className="flex items-center gap-2">
-                <span className="size-2 rounded-full bg-amber-500" />
-                <span className="text-sm text-ink-700">Needs refresh</span>
-              </div>
-              <span className="text-sm font-semibold text-ink-900">
-                {data.stale_insights}
-              </span>
-            </button>
-                <div className="mt-4 rounded-xl bg-gradient-to-br from-brand-50 to-transparent px-3.5 py-3">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-ink-800">Insights needing review</p>
-                    <p className="text-sm font-semibold text-brand-700">
-                      {data.insights_needing_review}
-                    </p>
-                  </div>
-                  <p className="mt-1 text-xs text-ink-500">
-                    Stale or failed insights that may benefit from regeneration.
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader
-                title="Sentiment"
-                description="Across completed insights"
-              />
-              <CardContent className="space-y-3">
-                {data.sentiment_distribution.map((item) => {
-                  const total = data.sentiment_distribution.reduce(
-                    (sum, entry) => sum + entry.count,
-                    0,
-                  );
-                  const colors: Record<string, string> = {
-                    Positive: "bg-emerald-500",
-                    Neutral: "bg-ink-400",
-                    Negative: "bg-rose-500",
-                  };
-                  return (
-                    <div key={item.sentiment} className="space-y-2">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-ink-700">{item.sentiment}</span>
-                        <span className="font-medium text-ink-900">{item.count}</span>
-                      </div>
-                      <Bar
-                        count={item.count}
-                        total={total}
-                        className={colors[item.sentiment] ?? "bg-ink-400"}
-                      />
-                    </div>
-                  );
-                })}
-              </CardContent>
-            </Card>
-          </section>
-
-          <section className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-            <Card>
-              <CardHeader
-                title="Recent interactions"
-                description="Latest meetings and conversations"
-                action={
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => { window.location.href = "/interactions"; }}
-                    className="gap-1"
-                  >
-                    All interactions
-                    <ChevronRight className="size-4" />
-                  </Button>
-                }
-              />
-            {data.recent_interactions.length === 0 ? (
-              <EmptyState
-                icon={<MessageSquareText className="size-5" />}
-                title="No interactions yet"
-                description="Add your first meeting or call to start generating insights."
-                action={
-                  <Button onClick={() => { window.location.href = "/interactions"; }}>
-                    Create interaction
-                  </Button>
-                }
-              />
-            ) : (
-                <div className="divide-y divide-ink-100">
-                  {data.recent_interactions.map((item) => (
+          <section className="grid gap-6 xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
+            <div className="space-y-6">
+              <Card>
+                <CardHeader
+                  title="Priority accounts"
+                  description="Accounts with elevated risk or limited momentum."
+                  action={
                     <Link
-                      key={item.id}
-                      href={`/interactions/${item.id}`}
-                      className="flex items-center gap-4 px-5 py-4 transition hover:bg-ink-50"
+                      href="/customers?status=at_risk"
+                      className="inline-flex items-center gap-1 text-xs font-medium text-ink-500 transition-colors hover:text-ink-900"
                     >
-                      <div className="flex size-10 items-center justify-center rounded-2xl border border-ink-200 bg-white">
-                        <CalendarClock className="size-4 text-ink-500" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-ink-900">
-                          {item.title}
-                        </p>
-                        <p className="mt-0.5 flex items-center gap-2 text-xs text-ink-500">
-                          <span className="truncate">{item.customer_name}</span>
-                          <span>·</span>
-                          <span>{formatDateTime(item.occurred_at)}</span>
-                        </p>
-                      </div>
-                      <div className="hidden items-center gap-2 sm:flex">
-                        <InsightStatusBadge
-                          status={item.has_insight ? "completed" : "pending"}
+                      View all
+                      <ArrowUpRight className="size-3" />
+                    </Link>
+                  }
+                />
+                {data.at_risk_list.length === 0 ? (
+                  <EmptyState
+                    icon={<Users className="size-5" />}
+                    title="No accounts need attention"
+                    description="Your portfolio looks stable right now."
+                  />
+                ) : (
+                  <div className="divide-y divide-ink-100">
+                    {data.at_risk_list.slice(0, 5).map((item) => (
+                      <Link
+                        key={item.id}
+                        href={`/customers/${item.id}`}
+                        className="group flex items-center gap-3 px-5 py-3.5 transition-colors hover:bg-ink-50/80"
+                      >
+                        <span className="flex size-9 shrink-0 items-center justify-center  border border-amber-200/70 bg-amber-50 text-amber-700">
+                          <AlertTriangle className="size-4" />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[13px] font-medium text-ink-900">
+                            {item.name}
+                          </p>
+                          <p className="mt-0.5 truncate text-[11px] text-ink-500">
+                            {item.assigned_manager || "Unassigned"}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          {item.health_score != null ? (
+                            <span className="hidden text-[11px] text-ink-500 sm:inline">
+                              Health {item.health_score}
+                            </span>
+                          ) : null}
+                          <CustomerStatusBadge status={item.status} />
+                        </div>
+                        <ArrowUpRight className="size-3.5 text-ink-300 transition-colors group-hover:text-ink-700" />
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </Card>
+
+              <Card>
+                <CardHeader
+                  title="Recent meetings"
+                  description="The latest conversations across your portfolio."
+                  action={
+                    <Link
+                      href="/interactions"
+                      className="inline-flex items-center gap-1 text-xs font-medium text-ink-500 transition-colors hover:text-ink-900"
+                    >
+                      All meetings
+                      <ArrowUpRight className="size-3" />
+                    </Link>
+                  }
+                />
+                {data.recent_interactions.length === 0 ? (
+                  <EmptyState
+                    icon={<CalendarDays className="size-5" />}
+                    title="No meetings yet"
+                    description="Add your first meeting to start capturing decisions and follow-ups."
+                    action={
+                      <Link
+                        href="/interactions"
+                        className={buttonStyles({ variant: "secondary" })}
+                      >
+                        <Plus className="size-4" />
+                        Add a meeting
+                      </Link>
+                    }
+                  />
+                ) : (
+                  <div className="divide-y divide-ink-100">
+                    {data.recent_interactions.slice(0, 5).map((item) => (
+                      <Link
+                        key={item.id}
+                        href={`/interactions/${item.id}`}
+                        className="group flex items-center gap-3 px-5 py-3.5 transition-colors hover:bg-ink-50/80"
+                      >
+                        <span className="flex size-9 shrink-0 items-center justify-center  border border-ink-200 bg-ink-50/60 text-ink-500">
+                          <MessageSquareText className="size-4" />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[13px] font-medium text-ink-900">
+                            {item.title}
+                          </p>
+                          <p className="mt-0.5 truncate text-[11px] text-ink-500">
+                            {item.customer_name}
+                          </p>
+                        </div>
+                        <div className="hidden text-right sm:block">
+                          <p
+                            className="text-[11px] font-medium text-ink-600"
+                            title={formatDateTime(item.occurred_at)}
+                          >
+                            {formatRelative(item.occurred_at)}
+                          </p>
+                          <p className="mt-0.5 text-[10px] text-ink-400">
+                            {item.has_insight ? "Insight ready" : "Not analyzed"}
+                          </p>
+                        </div>
+                        <ArrowUpRight className="size-3.5 text-ink-300 transition-colors group-hover:text-ink-700" />
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </Card>
+            </div>
+
+            <div className="space-y-6">
+              <Card>
+                <CardHeader
+                  title="Portfolio"
+                  description="Customers by lifecycle stage."
+                />
+                <CardContent className="space-y-4">
+                  {data.customers_by_status.length === 0 ? (
+                    <p className="py-4 text-center text-xs text-ink-500">
+                      No customer data yet.
+                    </p>
+                  ) : (
+                    data.customers_by_status.map((item) => (
+                      <div key={item.status} className="space-y-2">
+                        <div className="flex items-center justify-between gap-3 text-xs">
+                          <span className="text-ink-600">
+                            {CUSTOMER_STATUS_LABELS[item.status]}
+                          </span>
+                          <span className="font-medium text-ink-900">
+                            {item.count}
+                          </span>
+                        </div>
+                        <Bar
+                          count={item.count}
+                          total={statusTotal}
+                          className={STATUS_COLORS[item.status] ?? "bg-ink-400"}
                         />
                       </div>
-                      <ChevronRight className="size-4 text-ink-300" />
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </Card>
-
-            <Card>
-              <CardHeader
-                title="At-risk accounts"
-                description="Focus on these first"
-                action={
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => { window.location.href = "/customers?status=at_risk"; }}
-                    className="gap-1"
+                    ))
+                  )}
+                  <Link
+                    href="/customers"
+                    className="flex items-center justify-between border-t border-ink-100 pt-4 text-xs font-medium text-ink-500 transition-colors hover:text-ink-900"
                   >
-                    View all
-                    <ChevronRight className="size-4" />
-                  </Button>
-                }
-              />
-              {data.at_risk_list.length === 0 ? (
-                <EmptyState
-                  icon={<Workflow className="size-5" />}
-                  title="No at-risk accounts"
-                  description="Your portfolio looks stable right now."
-                />
-              ) : (
-                <div className="divide-y divide-ink-100">
-                  {data.at_risk_list.map((item) => (
+                    Open customer list
+                    <ArrowUpRight className="size-3.5" />
+                  </Link>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader
+                  title="AI insight health"
+                  description="Generated analysis across meetings."
+                  action={
                     <Link
-                      key={item.id}
-                      href={`/customers/${item.id}`}
-                      className="flex items-center gap-4 px-5 py-4 transition hover:bg-ink-50"
+                      href="/insights"
+                      className="text-xs font-medium text-ink-500 transition-colors hover:text-ink-900"
                     >
-                      <div className="flex size-10 items-center justify-center rounded-2xl border border-amber-200 bg-amber-50">
-                        <AlertTriangle className="size-4 text-amber-600" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-ink-900">
-                          {item.name}
-                        </p>
-                    <p className="mt-0.5 truncate text-xs text-ink-500">
-                      {item.assigned_manager ? item.assigned_manager : "Unassigned"}
-                    </p>
-                      </div>
-          <div className="flex flex-col items-end">
-            <CustomerStatusBadge status={item.status} />
-            {item.health_score != null ? (
-              <span className="mt-1 text-xs text-ink-500">
-                Health {item.health_score}
-              </span>
-            ) : null}
-          </div>
+                      Open
                     </Link>
-                  ))}
-                </div>
-              )}
-            </Card>
+                  }
+                />
+                <CardContent className="space-y-3">
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className=" border border-ink-100 bg-ink-50/50 px-3 py-3">
+                      <p className="text-lg font-semibold tracking-tight text-ink-950">
+                        {data.completed_insights}
+                      </p>
+                      <p className="mt-0.5 text-[10px] text-ink-500">Ready</p>
+                    </div>
+                    <div className=" border border-ink-100 bg-ink-50/50 px-3 py-3">
+                      <p className="text-lg font-semibold tracking-tight text-ink-950">
+                        {data.insights_needing_review}
+                      </p>
+                      <p className="mt-0.5 text-[10px] text-ink-500">Review</p>
+                    </div>
+                    <div className=" border border-ink-100 bg-ink-50/50 px-3 py-3">
+                      <p className="text-lg font-semibold tracking-tight text-ink-950">
+                        {data.failed_insights}
+                      </p>
+                      <p className="mt-0.5 text-[10px] text-ink-500">Failed</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2.5  border border-ink-100 px-3.5 py-3">
+                    <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-600" />
+                    <p className="text-[11px] leading-5 text-ink-500">
+                      {data.open_action_items} open action{" "}
+                      {data.open_action_items === 1 ? "item" : "items"} across
+                      your portfolio.
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader
+                  title="Sentiment"
+                  description="Across completed insights."
+                />
+                <CardContent className="space-y-4">
+                  {sentimentTotal === 0 ? (
+                    <p className="py-3 text-center text-xs text-ink-500">
+                      Sentiment will appear after your first insight.
+                    </p>
+                  ) : (
+                    data.sentiment_distribution.map((item) => (
+                      <div key={item.sentiment} className="space-y-2">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-ink-600">{item.sentiment}</span>
+                          <span className="font-medium text-ink-900">
+                            {item.count}
+                          </span>
+                        </div>
+                        <Bar
+                          count={item.count}
+                          total={sentimentTotal}
+                          className={
+                            SENTIMENT_COLORS[item.sentiment] ?? "bg-ink-400"
+                          }
+                        />
+                      </div>
+                    ))
+                  )}
+                </CardContent>
+              </Card>
+            </div>
           </section>
         </div>
       )}

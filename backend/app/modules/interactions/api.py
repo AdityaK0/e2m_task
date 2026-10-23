@@ -42,7 +42,7 @@ def list_interactions(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
-    _current_user: User = Depends(require_permissions(Permission.INTERACTIONS_READ)),
+    current_user: User = Depends(require_permissions(Permission.INTERACTIONS_READ)),
 ):
     result = InteractionService(db).list_page(
         customer_id=customer_id,
@@ -53,6 +53,7 @@ def list_interactions(
         sort=sort,
         page=page,
         page_size=page_size,
+        user=current_user,
     )
     return InteractionListResponse(
         items=[InteractionResponse.model_validate(item) for item in result["items"]],
@@ -77,9 +78,9 @@ def create_interaction(
 def get_interaction(
     interaction_id: int,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(require_permissions(Permission.INTERACTIONS_READ)),
+    current_user: User = Depends(require_permissions(Permission.INTERACTIONS_READ)),
 ):
-    interaction = InteractionService(db).get_or_404(interaction_id)
+    interaction = InteractionService(db).get_or_404(interaction_id, current_user)
     payload = InteractionResponse.model_validate(interaction).model_dump()
     insight = interaction.insight
     return InteractionDetailResponse(
@@ -94,9 +95,9 @@ def update_interaction(
     interaction_id: int,
     data: InteractionUpdateRequest,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(require_permissions(Permission.INTERACTIONS_WRITE)),
+    current_user: User = Depends(require_permissions(Permission.INTERACTIONS_WRITE)),
 ):
-    interaction = InteractionService(db).update(interaction_id, data)
+    interaction = InteractionService(db).update(interaction_id, data, current_user)
     return InteractionResponse.model_validate(interaction)
 
 
@@ -104,6 +105,6 @@ def update_interaction(
 def delete_interaction(
     interaction_id: int,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(require_permissions(Permission.INTERACTIONS_DELETE)),
+    current_user: User = Depends(require_permissions(Permission.INTERACTIONS_DELETE)),
 ):
-    InteractionService(db).delete(interaction_id)
+    InteractionService(db).delete(interaction_id, current_user)

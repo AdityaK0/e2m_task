@@ -10,14 +10,10 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Field, Input } from "@/components/ui/field";
-import { Logo } from "@/components/ui/logo";
 import { Spinner } from "@/components/ui/spinner";
 import { login } from "@/features/auth/authSlice";
 import { useAuth } from "@/features/auth/hooks";
-import { getApiError } from "@/lib/api/errors";
-import { cn } from "@/lib/utils";
 import { useAppDispatch } from "@/store/hooks";
 
 const schema = z.object({
@@ -77,78 +73,79 @@ function LoginForm() {
   };
 
   return (
-    <Card className="border-ink-200/80 shadow-float">
-      <div className="px-6 py-7 sm:px-8 sm:py-9">
-        <div className="mb-7 text-center">
-          <div className="mb-4 flex justify-center">
-            <Logo href="/login" compact />
-          </div>
-          <h1 className="text-xl font-semibold tracking-tight text-ink-900 sm:text-2xl">
-            Sign in to Northstar
-          </h1>
-          <p className="mt-1 text-sm text-ink-500">
-            Access your customer success workspace
-          </p>
-        </div>
-
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
-          <Field label="Email" htmlFor="email" error={errors.email?.message} required>
-            <div className="relative">
-              <Mail className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-ink-400" />
-              <Input
-                id="email"
-                type="email"
-                autoComplete="email"
-                placeholder="you@company.com"
-                className="pl-10"
-                invalid={Boolean(errors.email)}
-                {...register("email")}
-              />
-            </div>
-          </Field>
-
-          <Field label="Password" htmlFor="password" error={errors.password?.message} required>
-            <div className="relative">
-              <Lock className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-ink-400" />
-              <Input
-                id="password"
-                type="password"
-                autoComplete="current-password"
-                placeholder="Enter your password"
-                className="pl-10"
-                invalid={Boolean(errors.password)}
-                {...register("password")}
-              />
-            </div>
-          </Field>
-
-          {formError ? (
-            <div className="rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs text-rose-700">
-              {formError}
-            </div>
-          ) : null}
-
-          <Button
-            type="submit"
-            className={cn("w-full", (isSubmitting || status === "loading") && "opacity-90")}
-            isLoading={isSubmitting || status === "loading"}
-            rightIcon={<ArrowRight className="size-4" />}
-          >
-            Sign in
-          </Button>
-        </form>
-
-        <p className="mt-6 text-center text-xs text-ink-500">
-          Don&apos;t have an account?{" "}
-          <Link
-            href="/register"
-            className="font-medium text-brand-700 transition hover:text-brand-800"
-          >
-            Create one
-          </Link>
+    <div>
+      <div className="mb-8">
+        <p className="text-[11px] font-semibold tracking-[0.16em] text-brand-700 uppercase">
+          Account access
+        </p>
+        <h1 className="mt-3 text-[30px] leading-tight font-semibold tracking-[-0.035em] text-ink-950">
+          Welcome back
+        </h1>
+        <p className="mt-2 text-sm leading-6 text-ink-500">
+          Sign in to E2M Client Insights.
         </p>
       </div>
-    </Card>
+
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-5" noValidate>
+        <Field label="Email" htmlFor="email" error={errors.email?.message} required>
+          <div className="relative">
+            <Mail className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-ink-400" />
+            <Input
+              id="email"
+              type="email"
+              autoComplete="email"
+              placeholder="you@company.com"
+              className="h-11 pl-10"
+              invalid={Boolean(errors.email)}
+              {...register("email")}
+            />
+          </div>
+        </Field>
+
+        <Field label="Password" htmlFor="password" error={errors.password?.message} required>
+          <div className="relative">
+            <Lock className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-ink-400" />
+            <Input
+              id="password"
+              type="password"
+              autoComplete="current-password"
+              placeholder="Enter your password"
+              className="h-11 pl-10"
+              invalid={Boolean(errors.password)}
+              {...register("password")}
+            />
+          </div>
+        </Field>
+
+        {formError ? (
+          <div
+            className=" border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs leading-relaxed text-rose-700"
+            role="alert"
+          >
+            {formError}
+          </div>
+        ) : null}
+
+        <Button
+          type="submit"
+          className="h-11 w-full"
+          isLoading={isSubmitting}
+          rightIcon={<ArrowRight className="size-4" />}
+        >
+          Sign in
+        </Button>
+      </form>
+
+      <div className="mt-8 border-t border-ink-100 pt-5 text-center text-xs text-ink-500">
+        New to the workspace?{" "}
+        <Link
+          href="/register"
+          className="font-medium text-ink-900 underline decoration-ink-300 underline-offset-4 transition hover:decoration-ink-900"
+        >
+          Create an account
+        </Link>
+      </div>
+    </div>
   );
 }
 
@@ -156,9 +153,9 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <Card className="flex min-h-72 items-center justify-center border-ink-200/80 shadow-float">
+        <div className="flex min-h-72 items-center justify-center">
           <Spinner />
-        </Card>
+        </div>
       }
     >
       <LoginForm />

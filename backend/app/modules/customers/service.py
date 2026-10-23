@@ -1,14 +1,12 @@
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy import delete, func, literal, select
+from sqlalchemy.orm import Session, selectinload
 
-from app.modules.customers.models import Customer
+from app.modules.customers.access import get_customer_or_404
+from app.modules.customers.models import Customer, CustomerManager
 from app.modules.customers.repository import CustomerRepository
-from app.modules.customers.schema import (
-    CustomerCreateRequest,
-    CustomerUpdateRequest,
-)
+from app.modules.customers.schema import CustomerCreateRequest, CustomerUpdateRequest
 from app.modules.users.models import Role, User
-from app.modules.users.repository import UserRepository
+from app.utils.cache import invalidate_customer_mutation
 from app.utils.exceptions import AppException
 from app.utils.pagination import pagination_meta
 
@@ -18,17 +16,13 @@ class CustomerService:
         self.db = db
         self.repo = CustomerRepository(db)
 
-    def get_or_404(self, customer_id: int) -> Customer:
-        customer = self.repo.get_by_id(customer_id)
-        if customer is None:
-            raise AppException(
-                "Customer not found", status_code=404, error_code="CUSTOMER_NOT_FOUND"
-            )
-        return customer
+    def get_or_404(self, customer_id: int, user: User) -> Customer:
+        return get_customer_or_404(customer_id, user, self.db)
 
     def list_customers(
         self,
         *,
+        user: User,
         search: str | None,
         status,
         assigned_manager_id: int | None,
@@ -37,6 +31,7 @@ class CustomerService:
         page_size: int,
     ) -> dict:
         items, total = self.repo.list(
+            user=user,
             search=search,
             status=status,
             assigned_manager_id=assigned_manager_id,
@@ -46,11 +41,11 @@ class CustomerService:
         )
         return {"items": items, **pagination_meta(total, page, page_size)}
 
-    def detail(self, customer_id: int) -> dict:
+    def detail(self, customer_id: int, user: User) -> dict:
         from app.modules.interactions.models import Interaction
         from app.modules.insights.models import MeetingInsight, InsightStatus
 
-        customer = self.get_or_404(customer_id)
+        customer = self.get_or_404(customer_id, user)
         interaction_count = int(
             self.db.scalar(
                 select(func.count())
@@ -88,45 +83,249 @@ class CustomerService:
             "insight_count": insight_count,
         }
 
-    def create(self, data: CustomerCreateRequest) -> Customer:
-        self._validate_manager(data.assigned_manager_id)
-        customer = Customer(**data.model_dump())
-        return self.repo.create(customer)
+    def create(self, data: CustomerCreateRequest, actor: User) -> Customer:
+        if actor.role != Role.ADMIN and data.manager_ids:
+            raise AppException(
+                "Only administrators can assign managers",
+                status_code=403,
+                error_code="FORBIDDEN",
+            )
+        manager_ids = set(data.manager_ids)
+        self._validate_managers(manager_ids)
+        customer = Customer(**data.model_dump(exclude={"manager_ids"}))
+        self.db.add(customer)
+        try:
+            self.db.flush()
+            # Assignment and opt-in auto-assignment share the customer transaction.
+            auto_manager_query = select(User.id).where(
+                User.role == Role.MANAGER,
+                User.is_active.is_(True),
+                User.auto_assign_new_customers.is_(True),
+            )
+            manager_ids.update(self.db.scalars(auto_manager_query).all())
+            if actor.role == Role.MANAGER:
+                manager_ids.add(actor.id)
+            explicit_manager_ids = set(data.manager_ids)
+            if actor.role == Role.MANAGER:
+                explicit_manager_ids.add(actor.id)
+            self._insert_assignments(customer.id, explicit_manager_ids, actor.id)
+            self._insert_auto_assignments(customer.id, actor.id)
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+        invalidate_customer_mutation(manager_ids)
+        return self._loaded_customer(customer.id)
 
-    def update(self, customer_id: int, data: CustomerUpdateRequest) -> Customer:
-        customer = self.get_or_404(customer_id)
+    def update(self, customer_id: int, data: CustomerUpdateRequest, actor: User) -> Customer:
+        customer = self.get_or_404(customer_id, actor)
         payload = data.model_dump(exclude_unset=True)
-        if "assigned_manager_id" in payload:
-            self._validate_manager(payload["assigned_manager_id"])
         if payload.get("name") is None and "name" in payload:
             raise AppException(
                 "Customer name cannot be empty",
                 status_code=422,
                 error_code="VALIDATION_ERROR",
             )
+        manager_ids = self._manager_ids(customer.id)
         for key, value in payload.items():
             setattr(customer, key, value)
-        return self.repo.save(customer)
+        try:
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+        invalidate_customer_mutation(manager_ids)
+        return self._loaded_customer(customer.id)
 
-    def delete(self, customer_id: int) -> None:
-        customer = self.get_or_404(customer_id)
-        # Soft delete preserves interaction and insight history. Only admins
-        # reach this method (enforced by the route permission dependency).
-        self.repo.soft_delete(customer)
+    def delete(self, customer_id: int, actor: User) -> None:
+        customer = self.get_or_404(customer_id, actor)
+        manager_ids = self._manager_ids(customer.id)
+        from app.utils.models import utc_now
 
-    def _validate_manager(self, manager_id: int | None) -> None:
-        if manager_id is None:
-            return
-        manager = UserRepository(self.db).get_by_id(manager_id)
-        if manager is None or not manager.is_active:
-            raise AppException(
-                "Assigned manager must be an active user",
-                status_code=422,
-                error_code="INVALID_ASSIGNED_MANAGER",
+        customer.deleted_at = utc_now()
+        try:
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+        invalidate_customer_mutation(manager_ids)
+
+    def managers(self, customer_id: int, actor: User) -> list[User]:
+        self.get_or_404(customer_id, actor)
+        return list(
+            self.db.scalars(
+                select(User)
+                .join(CustomerManager, CustomerManager.manager_id == User.id)
+                .where(CustomerManager.customer_id == customer_id)
+                .order_by(User.name)
+            ).all()
+        )
+
+    def assign_manager(self, customer_id: int, manager_id: int, actor: User) -> dict:
+        customer = self.get_or_404(customer_id, actor)
+        self._validate_managers({manager_id})
+        assigned = self._insert_assignments(customer.id, {manager_id}, actor.id)
+        if assigned:
+            self.db.commit()
+            invalidate_customer_mutation({manager_id})
+        return {"assigned": assigned, "skipped": int(not assigned)}
+
+    def unassign_manager(self, customer_id: int, manager_id: int, actor: User) -> dict:
+        customer = self.get_or_404(customer_id, actor)
+        assignment = self.db.scalar(
+            select(CustomerManager).where(
+                CustomerManager.customer_id == customer.id,
+                CustomerManager.manager_id == manager_id,
             )
-        if manager.role not in (Role.ADMIN, Role.CSM):
-            raise AppException(
-                "Customers can only be assigned to an admin or CSM",
-                status_code=422,
-                error_code="INVALID_ASSIGNED_MANAGER",
+        )
+        if assignment is not None:
+            self.db.delete(assignment)
+            self.db.commit()
+            invalidate_customer_mutation({manager_id})
+        return {"unassigned": int(assignment is not None), "skipped": int(assignment is None)}
+
+    def bulk_assignment(
+        self,
+        manager_id: int,
+        customer_ids: list[int] | None,
+        all_customers: bool,
+        actor: User,
+        *,
+        assign: bool,
+    ) -> dict:
+        self._validate_managers({manager_id})
+        if all_customers:
+            ids = list(
+                self.db.scalars(
+                    select(Customer.id).where(Customer.deleted_at.is_(None))
+                ).all()
             )
+        else:
+            ids = list(dict.fromkeys(customer_ids or []))
+            found = set(
+                self.db.scalars(
+                    select(Customer.id).where(
+                        Customer.id.in_(ids), Customer.deleted_at.is_(None)
+                    )
+                ).all()
+            ) if ids else set()
+            if found != set(ids):
+                raise AppException(
+                    "One or more customers do not exist",
+                    status_code=422,
+                    error_code="INVALID_CUSTOMER_IDS",
+                )
+
+        if assign:
+            changed = self._insert_assignments(set(ids), {manager_id}, actor.id)
+            skipped = len(ids) - changed
+        else:
+            if ids:
+                result = self.db.execute(
+                    delete(CustomerManager).where(
+                        CustomerManager.manager_id == manager_id,
+                        CustomerManager.customer_id.in_(ids),
+                    )
+                )
+                changed = result.rowcount or 0
+            else:
+                changed = 0
+            skipped = len(ids) - changed
+
+        if changed:
+            self.db.commit()
+            invalidate_customer_mutation({manager_id})
+        else:
+            self.db.rollback()
+        return {
+            "assigned" if assign else "unassigned": changed,
+            "skipped": skipped,
+        }
+
+    def _validate_managers(self, manager_ids: set[int]) -> list[User]:
+        if not manager_ids:
+            return []
+        users = list(self.db.scalars(select(User).where(User.id.in_(manager_ids))).all())
+        by_id = {user.id: user for user in users}
+        if any(
+            user_id not in by_id
+            or not by_id[user_id].is_active
+            or by_id[user_id].role != Role.MANAGER
+            for user_id in manager_ids
+        ):
+            raise AppException(
+                "Target user must be an active manager",
+                status_code=400,
+                error_code="INVALID_MANAGER",
+            )
+        return users
+
+    def _insert_assignments(
+        self, customer_id: int | set[int], manager_ids: set[int], assigned_by: int
+    ) -> int:
+        customer_ids = {customer_id} if isinstance(customer_id, int) else customer_id
+        if not customer_ids or not manager_ids:
+            return 0
+        values = [
+            {"customer_id": cid, "manager_id": mid, "assigned_by": assigned_by}
+            for cid in customer_ids
+            for mid in manager_ids
+        ]
+        dialect = self.db.get_bind().dialect.name
+        if dialect == "postgresql":
+            from sqlalchemy.dialects.postgresql import insert
+        elif dialect == "sqlite":
+            from sqlalchemy.dialects.sqlite import insert
+        else:
+            raise RuntimeError(f"Unsupported assignment database dialect: {dialect}")
+        result = self.db.execute(
+            insert(CustomerManager)
+            .values(values)
+            .on_conflict_do_nothing(
+                index_elements=[CustomerManager.customer_id, CustomerManager.manager_id]
+            )
+        )
+        return result.rowcount or 0
+
+    def _insert_auto_assignments(self, customer_id: int, assigned_by: int) -> None:
+        dialect = self.db.get_bind().dialect.name
+        if dialect == "postgresql":
+            from sqlalchemy.dialects.postgresql import insert
+        elif dialect == "sqlite":
+            from sqlalchemy.dialects.sqlite import insert
+        else:
+            raise RuntimeError(f"Unsupported assignment database dialect: {dialect}")
+        assignment_select = select(
+            literal(customer_id),
+            User.id,
+            literal(assigned_by),
+        ).where(
+            User.role == Role.MANAGER,
+            User.is_active.is_(True),
+            User.auto_assign_new_customers.is_(True),
+        )
+        self.db.execute(
+            insert(CustomerManager)
+            .from_select(["customer_id", "manager_id", "assigned_by"], assignment_select)
+            .on_conflict_do_nothing(
+                index_elements=[CustomerManager.customer_id, CustomerManager.manager_id]
+            )
+        )
+
+    def _manager_ids(self, customer_id: int) -> set[int]:
+        return set(
+            self.db.scalars(
+                select(CustomerManager.manager_id).where(
+                    CustomerManager.customer_id == customer_id
+                )
+            ).all()
+        )
+
+    def _loaded_customer(self, customer_id: int) -> Customer:
+        return self.db.scalar(
+            select(Customer)
+            .options(
+                selectinload(Customer.manager_assignments).selectinload(CustomerManager.manager)
+            )
+            .where(Customer.id == customer_id)
+        )

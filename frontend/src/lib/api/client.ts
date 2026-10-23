@@ -9,7 +9,7 @@ import { clearAccessToken, getAccessToken, setAccessToken } from "./token";
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1";
 
-export const AUTH_EXPIRED_EVENT = "northstar:auth-expired";
+export const AUTH_EXPIRED_EVENT = "e2m:auth-expired";
 
 export function getCsrfToken(): string | null {
   if (typeof document === "undefined") return null;

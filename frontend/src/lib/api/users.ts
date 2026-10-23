@@ -26,6 +26,7 @@ export interface UserUpdatePayload {
   name?: string;
   role?: Role;
   is_active?: boolean;
+  auto_assign_new_customers?: boolean;
 }
 
 export const usersApi = {
@@ -51,6 +52,11 @@ export const usersApi = {
 
   async update(id: number, payload: UserUpdatePayload): Promise<User> {
     const { data } = await api.patch<User>(`/users/${id}`, payload);
+    return data;
+  },
+
+  async updateRole(id: number, role: Role): Promise<User> {
+    const { data } = await api.patch<User>(`/users/${id}/role`, { role });
     return data;
   },
 

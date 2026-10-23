@@ -102,7 +102,7 @@ export function InteractionForm({
       const saved = interaction
         ? await interactionsApi.update(interaction.id, payload)
         : await interactionsApi.create(payload);
-      toast.success(isEdit ? "Interaction updated" : "Interaction logged");
+      toast.success(isEdit ? "Meeting updated" : "Meeting added");
       onSaved(saved);
       onClose();
     } catch (error) {
@@ -116,7 +116,7 @@ export function InteractionForm({
     <Dialog
       open={open}
       onClose={onClose}
-      title={isEdit ? "Edit interaction" : "Log an interaction"}
+      title={isEdit ? "Edit meeting" : "New meeting"}
       description={
         isEdit
           ? "Update meeting details. Changing notes marks the AI insight as stale."
@@ -134,7 +134,7 @@ export function InteractionForm({
             form="interaction-form"
             isLoading={isSubmitting}
           >
-            {isEdit ? "Save changes" : "Log interaction"}
+            {isEdit ? "Save changes" : "Add meeting"}
           </Button>
         </>
       }
@@ -146,7 +146,7 @@ export function InteractionForm({
         noValidate
       >
         {serverError ? (
-          <div className="rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs text-rose-700">
+          <div className=" border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs text-rose-700">
             {serverError}
           </div>
         ) : null}

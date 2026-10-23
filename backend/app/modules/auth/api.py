@@ -112,16 +112,14 @@ def _set_no_store(response: Response) -> None:
 def auth_config():
     return AuthorizationConfigResponse(
         registration_enabled=settings.ALLOW_REGISTRATION,
-        roles=[role.value for role in Role],
+        roles=[Role.MANAGER.value],
     )
 
 
 @auth_router.get("/roles", response_model=list[RoleOption])
 def role_options():
     return [
-        RoleOption(value=Role.ADMIN, label="Administrator"),
-        RoleOption(value=Role.CSM, label="Customer Success Manager"),
-        RoleOption(value=Role.VIEWER, label="Viewer"),
+        RoleOption(value=Role.MANAGER, label="Manager"),
     ]
 
 

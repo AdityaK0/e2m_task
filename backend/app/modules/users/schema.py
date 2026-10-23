@@ -14,6 +14,7 @@ class UserResponse(BaseModel):
     email: EmailStr
     role: Role
     is_active: bool
+    auto_assign_new_customers: bool = False
     last_login_at: datetime | None = None
     created_at: datetime
 
@@ -39,7 +40,7 @@ class UserCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
-    role: Role = Role.VIEWER
+    role: Role = Role.MANAGER
 
     @field_validator("name")
     @classmethod
@@ -59,6 +60,7 @@ class UserUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     role: Role | None = None
     is_active: bool | None = None
+    auto_assign_new_customers: bool | None = None
 
     @field_validator("name")
     @classmethod
@@ -69,6 +71,14 @@ class UserUpdateRequest(BaseModel):
         if not value:
             raise ValueError("Name cannot be empty")
         return value
+
+
+class RoleUpdateRequest(BaseModel):
+    role: Role
+
+
+class AutoAssignUpdateRequest(BaseModel):
+    auto_assign_new_customers: bool
 
 
 class UserListResponse(BaseModel):

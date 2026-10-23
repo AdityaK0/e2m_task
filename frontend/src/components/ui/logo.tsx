@@ -6,18 +6,16 @@ export function LogoMark({ className }: { className?: string }) {
   return (
     <span
       className={cn(
-        "relative inline-flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 via-brand-600 to-brand-800 shadow-lg shadow-brand-900/25",
+        "relative inline-flex size-9 shrink-0 items-center justify-center bg-ink-950 text-white",
         className,
       )}
       aria-hidden="true"
     >
-      <svg viewBox="0 0 24 24" className="size-5 text-white" fill="none">
-        <path
-          d="M12 2.5 14.4 9.6 21.5 12l-7.1 2.4L12 21.5l-2.4-7.1L2.5 12l7.1-2.4L12 2.5Z"
-          fill="currentColor"
-          fillOpacity="0.95"
-        />
-        <circle cx="12" cy="12" r="2.1" fill="#312e81" />
+      <svg viewBox="0 0 32 32" className="size-[72%]" fill="none">
+        <rect x="7" y="8" width="14" height="3" rx="1" fill="currentColor" />
+        <rect x="7" y="14.5" width="9" height="3" rx="1" fill="currentColor" />
+        <rect x="7" y="21" width="14" height="3" rx="1" fill="currentColor" />
+        <rect x="22.5" y="8" width="3" height="3" rx="0.75" fill="#6b9fff" />
       </svg>
     </span>
   );
@@ -33,16 +31,15 @@ export function Logo({
   className?: string;
 }) {
   return (
-    <Link href={href} className={cn("inline-flex items-center gap-2.5", className)}>
+    <Link
+      href={href}
+      className={cn("inline-flex items-center gap-2.5", className)}
+      aria-label="E2M Client Insights"
+    >
       <LogoMark />
       {!compact ? (
-        <span className="leading-none">
-          <span className="block text-[15px] font-semibold tracking-tight text-ink-900">
-            Northstar
-          </span>
-          <span className="mt-1 block text-[10px] font-medium tracking-[0.18em] text-ink-400 uppercase">
-            Customer Success
-          </span>
+        <span className="text-[15px] leading-none font-semibold tracking-[-0.02em] text-ink-950">
+          E2M <span className="font-medium text-ink-500">Insights</span>
         </span>
       ) : null}
     </Link>

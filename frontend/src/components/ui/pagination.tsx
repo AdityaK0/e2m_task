@@ -51,15 +51,18 @@ export function Pagination({
       )}
     >
       <span>
-        Showing <strong className="font-semibold text-ink-700">{from}–{to}</strong> of{" "}
-        <strong className="font-semibold text-ink-700">{total}</strong>
+        Showing{" "}
+        <strong className="font-semibold text-ink-700">
+          {from}–{to}
+        </strong>{" "}
+        of <strong className="font-semibold text-ink-700">{total}</strong>
       </span>
       <div className="flex items-center gap-1">
         <button
           type="button"
           onClick={() => onPageChange(page - 1)}
           disabled={page <= 1}
-          className="inline-flex size-8 items-center justify-center rounded-lg border border-ink-200 bg-white text-ink-600 transition hover:bg-ink-50 disabled:pointer-events-none disabled:opacity-40"
+          className="inline-flex size-8 items-center justify-center  border border-ink-200 bg-white text-ink-600 transition-colors hover:bg-ink-50 disabled:pointer-events-none disabled:opacity-40"
           aria-label="Previous page"
         >
           <ChevronLeft className="size-4" />
@@ -76,9 +79,9 @@ export function Pagination({
               onClick={() => onPageChange(item)}
               aria-current={item === page ? "page" : undefined}
               className={cn(
-                "inline-flex size-8 items-center justify-center rounded-lg border text-xs font-medium transition",
+                "inline-flex size-8 items-center justify-center  border text-xs font-medium transition-colors",
                 item === page
-                  ? "border-brand-600 bg-brand-600 text-white shadow-sm"
+                  ? "border-ink-950 bg-ink-950 text-white"
                   : "border-ink-200 bg-white text-ink-600 hover:bg-ink-50",
               )}
             >
@@ -90,7 +93,7 @@ export function Pagination({
           type="button"
           onClick={() => onPageChange(page + 1)}
           disabled={page >= pages}
-          className="inline-flex size-8 items-center justify-center rounded-lg border border-ink-200 bg-white text-ink-600 transition hover:bg-ink-50 disabled:pointer-events-none disabled:opacity-40"
+          className="inline-flex size-8 items-center justify-center  border border-ink-200 bg-white text-ink-600 transition-colors hover:bg-ink-50 disabled:pointer-events-none disabled:opacity-40"
           aria-label="Next page"
         >
           <ChevronRight className="size-4" />

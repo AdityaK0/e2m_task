@@ -1,7 +1,7 @@
-name: northstar-cs
+name: e2m-client-insights
 
 x-backend-env: &backend-env
-  APP_NAME: Northstar Customer Success Platform
+  APP_NAME: E2M Client Insights
   APP_ENV: development
   DEBUG: "false"
   API_V1_PREFIX: /api/v1
@@ -62,7 +62,7 @@ services:
     restart: unless-stopped
 
   backend:
-    image: northstar-cs-backend
+    image: e2m-client-insights-backend
     build:
       context: ./backend
     environment:
@@ -78,7 +78,7 @@ services:
     restart: unless-stopped
 
   seed:
-    image: northstar-cs-backend
+    image: e2m-client-insights-backend
     environment: *backend-env
     entrypoint: ["python", "-m", "app.seed"]
     depends_on:
@@ -87,7 +87,7 @@ services:
     restart: "no"
 
   frontend:
-    image: northstar-cs-frontend
+    image: e2m-client-insights-frontend
     build:
       context: ./frontend
       args:

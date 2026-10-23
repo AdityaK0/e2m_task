@@ -1,8 +1,9 @@
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.modules.customers.models import Customer, CustomerStatus
-from app.utils.models import utc_now
+from app.modules.customers.access import apply_customer_access_filter
+from app.modules.customers.models import Customer, CustomerManager, CustomerStatus
+from app.modules.users.models import User
 
 SORT_COLUMNS = {
     "name": Customer.name,
@@ -22,30 +23,20 @@ class CustomerRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def create(self, customer: Customer) -> Customer:
-        self.db.add(customer)
-        self.db.commit()
-        self.db.refresh(customer)
-        return customer
-
-    def save(self, customer: Customer) -> Customer:
-        self.db.commit()
-        self.db.refresh(customer)
-        return customer
-
-    def get_by_id(self, customer_id: int, *, include_deleted: bool = False) -> Customer | None:
-        q = (
+    def get_by_id(self, customer_id: int, user: User) -> Customer | None:
+        query = (
             select(Customer)
-            .options(selectinload(Customer.assigned_manager))
-            .where(Customer.id == customer_id)
+            .options(
+                selectinload(Customer.manager_assignments).selectinload(CustomerManager.manager)
+            )
+            .where(Customer.id == customer_id, Customer.deleted_at.is_(None))
         )
-        if not include_deleted:
-            q = q.where(Customer.deleted_at.is_(None))
-        return self.db.scalar(q)
+        return self.db.scalar(apply_customer_access_filter(query, user))
 
     def list(
         self,
         *,
+        user: User,
         search: str | None,
         status: CustomerStatus | None,
         assigned_manager_id: int | None,
@@ -67,22 +58,31 @@ class CustomerRepository:
         if status is not None:
             filters.append(Customer.status == status)
         if assigned_manager_id is not None:
-            filters.append(Customer.assigned_manager_id == assigned_manager_id)
+            filters.append(
+                select(CustomerManager.id)
+                .where(
+                    CustomerManager.customer_id == Customer.id,
+                    CustomerManager.manager_id == assigned_manager_id,
+                )
+                .exists()
+            )
 
         base = (
             select(Customer)
-            .options(selectinload(Customer.assigned_manager))
+            .options(
+                selectinload(Customer.manager_assignments).selectinload(CustomerManager.manager)
+            )
             .where(*filters)
         )
-        count_q = select(func.count()).select_from(Customer).where(*filters)
-        total = int(self.db.scalar(count_q) or 0)
-
-        order = SORT_COLUMNS.get(sort, SORT_COLUMNS["-created_at"])
+        count_query = select(func.count()).select_from(Customer).where(*filters)
+        base = apply_customer_access_filter(base, user)
+        count_query = apply_customer_access_filter(count_query, user)
+        total = int(self.db.scalar(count_query) or 0)
         items = list(
-            self.db.scalars(base.order_by(order).offset(offset).limit(limit)).all()
+            self.db.scalars(
+                base.order_by(SORT_COLUMNS.get(sort, SORT_COLUMNS["-created_at"]))
+                .offset(offset)
+                .limit(limit)
+            ).all()
         )
         return items, total
-
-    def soft_delete(self, customer: Customer) -> None:
-        customer.deleted_at = utc_now()
-        self.db.commit()

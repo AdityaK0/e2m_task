@@ -15,11 +15,11 @@ export default function NewCustomerPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Customers"
+        eyebrow="Client portfolio"
         backHref="/customers"
-        backLabel="Back to customers"
+        backLabel="All customers"
         title="New customer"
-        description="Create an account record and assign ownership."
+        description="Create an account record, add context, and assign ownership."
       />
       <div className="max-w-4xl">
         <CustomerForm mode="create" />

@@ -18,7 +18,6 @@ def _create_customer(client, token, csm_id, *, name, status, health_score=None):
             name=name,
             status=status,
             health_score=health_score,
-            assigned_manager_id=csm_id,
             contact_email=f"{name.lower().replace(' ', '.')}@example.com",
         ),
         headers=auth_headers(token),
@@ -30,8 +29,8 @@ def _create_customer(client, token, csm_id, *, name, status, health_score=None):
 def test_dashboard_aggregates_and_cache_invalidation(
     client, make_user, fake_provider, fake_redis
 ):
-    csm = make_user("csm@example.com", role=Role.CSM, name="Dana Okafor")
-    viewer = make_user("viewer@example.com", role=Role.VIEWER)
+    csm = make_user("csm@example.com", role=Role.MANAGER, name="Dana Okafor")
+    viewer = make_user("viewer@example.com", role=Role.MANAGER)
     token, _ = login(client, csm.email, csm.password)
     viewer_token, _ = login(client, viewer.email, viewer.password)
     now = datetime.now(timezone.utc)
@@ -128,15 +127,15 @@ def test_dashboard_aggregates_and_cache_invalidation(
     ]
     assert summary["at_risk_list"][0]["assigned_manager"] == "Dana Okafor"
 
-    keys = [key for key in fake_redis.scan_iter("dashboard:summary:*")]
+    keys = [key for key in fake_redis.scan_iter("dashboard:manager:*")]
     assert len(keys) == 1
-    assert 0 < fake_redis.ttl(keys[0]) <= 60
+    assert 0 < fake_redis.ttl(keys[0]) <= 300
 
     viewer_summary = client.get(
         "/api/v1/dashboard/summary", headers=auth_headers(viewer_token)
     )
     assert viewer_summary.status_code == 200
-    assert viewer_summary.json()["total_customers"] == 5
+    assert viewer_summary.json()["total_customers"] == 0
 
     # A customer mutation bumps the dashboard generation, so stale cache is not used.
     updated = client.patch(
@@ -159,7 +158,7 @@ def test_dashboard_requires_authentication(client):
 
 
 def test_dashboard_empty_state(client, make_user):
-    viewer = make_user("viewer@example.com", role=Role.VIEWER)
+    viewer = make_user("viewer@example.com", role=Role.MANAGER)
     token, _ = login(client, viewer.email, viewer.password)
     summary = client.get(
         "/api/v1/dashboard/summary", headers=auth_headers(token)

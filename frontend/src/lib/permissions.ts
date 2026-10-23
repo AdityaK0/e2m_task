@@ -34,15 +34,12 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "insights:generate",
     "dashboard:read",
   ],
-  csm: [
+  manager: [
     ...READ_ONLY,
     "customers:write",
     "interactions:write",
-    "interactions:delete",
     "insights:generate",
-    "users:read",
   ],
-  viewer: [...READ_ONLY],
 };
 
 export function can(role: Role | undefined, permission: Permission): boolean {
@@ -51,12 +48,10 @@ export function can(role: Role | undefined, permission: Permission): boolean {
 
 export const ROLE_LABELS: Record<Role, string> = {
   admin: "Administrator",
-  csm: "Customer Success Manager",
-  viewer: "Viewer",
+  manager: "Manager",
 };
 
 export const ROLE_SHORT_LABELS: Record<Role, string> = {
   admin: "Admin",
-  csm: "CSM",
-  viewer: "Viewer",
+  manager: "Manager",
 };

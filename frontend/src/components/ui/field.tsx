@@ -90,7 +90,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
       ref={ref}
       className={cn(
         "input appearance-none bg-[length:16px] bg-[right_0.85rem_center] bg-no-repeat pr-9",
-        "bg-[url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2364748b' stroke-width='2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='m6 9 6 6 6-6'/%3E%3C/svg%3E\")]",
+        "bg-[url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23777771' stroke-width='2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='m6 9 6 6 6-6'/%3E%3C/svg%3E\")]",
         invalid && "border-rose-300 focus:border-rose-500",
         className,
       )}

@@ -14,6 +14,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini .
+COPY pyproject.toml .
+RUN pip install --no-cache-dir .
 COPY entrypoint.sh .
 RUN chmod +x entrypoint.sh && chown -R app:app /app
 

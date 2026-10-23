@@ -63,7 +63,7 @@ class AuthService:
             name=data.name,
             email=email,
             password_hash=hash_password(data.password),
-            role=Role.VIEWER,
+            role=Role.MANAGER,
             is_active=True,
         )
         try:

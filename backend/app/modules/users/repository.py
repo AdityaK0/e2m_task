@@ -63,7 +63,7 @@ class UserRepository:
                 select(User)
                 .where(
                     User.is_active.is_(True),
-                    User.role.in_([Role.ADMIN, Role.CSM]),
+                    User.role == Role.MANAGER,
                 )
                 .order_by(User.name.asc())
             ).all()

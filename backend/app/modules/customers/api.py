@@ -1,43 +1,37 @@
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import require_permissions
+from app.dependencies import require_permissions, require_roles
 from app.modules.auth.permissions import Permission
 from app.modules.customers.models import CustomerStatus
 from app.modules.customers.schema import (
+    BulkAssignmentRequest,
+    BulkAssignmentResponse,
     CustomerCreateRequest,
     CustomerDetailResponse,
     CustomerListResponse,
     CustomerResponse,
     CustomerUpdateRequest,
+    ManagerAssignmentRequest,
 )
 from app.modules.customers.service import CustomerService
-from app.modules.users.models import User
+from app.modules.users.models import Role, User
+from app.modules.users.schema import UserSummary
 from app.utils.cache import (
     CUSTOMER_LIST_VERSION_KEY,
     build_list_cache_key,
     get_json,
     get_version,
-    invalidate_catalog,
     set_json,
 )
 
 customer_sort = Literal[
-    "name",
-    "-name",
-    "created_at",
-    "-created_at",
-    "updated_at",
-    "-updated_at",
-    "health_score",
-    "-health_score",
-    "status",
-    "-status",
+    "name", "-name", "created_at", "-created_at", "updated_at", "-updated_at",
+    "health_score", "-health_score", "status", "-status",
 ]
-
 customers_router = APIRouter(prefix="/customers", tags=["Customers"])
 
 
@@ -53,37 +47,28 @@ def list_customers(
     current_user: User = Depends(require_permissions(Permission.CUSTOMERS_READ)),
 ):
     params = {
-        "search": search,
-        "status": status.value if status else None,
-        "assigned_manager_id": assigned_manager_id,
-        "sort": sort,
-        "page": page,
-        "page_size": page_size,
+        "search": search, "status": status.value if status else None,
+        "assigned_manager_id": assigned_manager_id, "sort": sort,
+        "page": page, "page_size": page_size,
     }
-    version = get_version(CUSTOMER_LIST_VERSION_KEY)
-    cache_key = build_list_cache_key(
-        "customers:list", current_user.role.value, current_user.id, params, version
+    key = build_list_cache_key(
+        "customers:list", current_user.role.value, current_user.id, params,
+        get_version(CUSTOMER_LIST_VERSION_KEY),
     )
-    cached = get_json(cache_key)
+    cached = get_json(key)
     if cached is not None:
         return CustomerListResponse.model_validate(cached)
-
     result = CustomerService(db).list_customers(
-        search=search,
-        status=status,
-        assigned_manager_id=assigned_manager_id,
-        sort=sort,
-        page=page,
-        page_size=page_size,
+        user=current_user, search=search, status=status,
+        assigned_manager_id=assigned_manager_id, sort=sort,
+        page=page, page_size=page_size,
     )
     response = CustomerListResponse(
         items=[CustomerResponse.model_validate(item) for item in result["items"]],
-        total=result["total"],
-        page=result["page"],
-        page_size=result["page_size"],
-        pages=result["pages"],
+        total=result["total"], page=result["page"],
+        page_size=result["page_size"], pages=result["pages"],
     )
-    set_json(cache_key, response.model_dump(mode="json"))
+    set_json(key, response.model_dump(mode="json"))
     return response
 
 
@@ -91,46 +76,99 @@ def list_customers(
 def create_customer(
     data: CustomerCreateRequest,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(require_permissions(Permission.CUSTOMERS_WRITE)),
+    current_user: User = Depends(require_permissions(Permission.CUSTOMERS_WRITE)),
 ):
-    customer = CustomerService(db).create(data)
-    invalidate_catalog()
-    return CustomerResponse.model_validate(customer)
+    return CustomerResponse.model_validate(CustomerService(db).create(data, current_user))
+
+
+@customers_router.post("/assignments", response_model=BulkAssignmentResponse)
+def bulk_assign(
+    data: BulkAssignmentRequest,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_roles(Role.ADMIN)),
+):
+    return CustomerService(db).bulk_assignment(
+        data.manager_id, data.customer_ids, data.all is True, actor, assign=True
+    )
+
+
+@customers_router.delete("/assignments", response_model=BulkAssignmentResponse)
+def bulk_unassign(
+    data: BulkAssignmentRequest,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_roles(Role.ADMIN)),
+):
+    return CustomerService(db).bulk_assignment(
+        data.manager_id, data.customer_ids, data.all is True, actor, assign=False
+    )
+
+
+@customers_router.get("/{customer_id}/managers", response_model=list[UserSummary])
+def get_managers(
+    customer_id: int,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_roles(Role.ADMIN)),
+):
+    return [
+        UserSummary.model_validate(user)
+        for user in CustomerService(db).managers(customer_id, actor)
+    ]
+
+
+@customers_router.post("/{customer_id}/managers", response_model=BulkAssignmentResponse)
+def assign_manager(
+    customer_id: int,
+    data: ManagerAssignmentRequest,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_roles(Role.ADMIN)),
+):
+    return CustomerService(db).assign_manager(customer_id, data.manager_id, actor)
+
+
+@customers_router.delete("/{customer_id}/managers/{manager_id}", response_model=BulkAssignmentResponse)
+def unassign_manager(
+    customer_id: int,
+    manager_id: int,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_roles(Role.ADMIN)),
+):
+    return CustomerService(db).unassign_manager(customer_id, manager_id, actor)
 
 
 @customers_router.get("/{customer_id}", response_model=CustomerDetailResponse)
 def get_customer(
     customer_id: int,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(require_permissions(Permission.CUSTOMERS_READ)),
+    current_user: User = Depends(require_permissions(Permission.CUSTOMERS_READ)),
 ):
-    detail = CustomerService(db).detail(customer_id)
+    detail = CustomerService(db).detail(customer_id, current_user)
     base = CustomerResponse.model_validate(detail["customer"]).model_dump()
     return CustomerDetailResponse(
-        **base,
-        interaction_count=detail["interaction_count"],
+        **base, interaction_count=detail["interaction_count"],
         last_interaction_at=detail["last_interaction_at"],
         insight_count=detail["insight_count"],
     )
 
 
+@customers_router.put("/{customer_id}", response_model=CustomerResponse)
 @customers_router.patch("/{customer_id}", response_model=CustomerResponse)
 def update_customer(
     customer_id: int,
     data: CustomerUpdateRequest,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(require_permissions(Permission.CUSTOMERS_WRITE)),
+    current_user: User = Depends(require_permissions(Permission.CUSTOMERS_WRITE)),
 ):
-    customer = CustomerService(db).update(customer_id, data)
-    invalidate_catalog()
-    return CustomerResponse.model_validate(customer)
+    return CustomerResponse.model_validate(
+        CustomerService(db).update(customer_id, data, current_user)
+    )
 
 
 @customers_router.delete("/{customer_id}", status_code=204)
 def delete_customer(
     customer_id: int,
+    response: Response,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(require_permissions(Permission.CUSTOMERS_DELETE)),
+    actor: User = Depends(require_permissions(Permission.CUSTOMERS_DELETE)),
 ):
-    CustomerService(db).delete(customer_id)
-    invalidate_catalog()
+    CustomerService(db).delete(customer_id, actor)
+    response.status_code = 204

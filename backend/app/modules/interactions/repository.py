@@ -3,7 +3,10 @@ from datetime import datetime
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
+from app.modules.customers.access import apply_customer_access_filter
+from app.modules.customers.models import Customer
 from app.modules.interactions.models import Interaction, InteractionType
+from app.modules.users.models import User
 from app.utils.models import utc_now
 
 SORT_COLUMNS = {
@@ -31,12 +34,16 @@ class InteractionRepository:
         self.db.refresh(interaction)
         return interaction
 
-    def get_by_id(self, interaction_id: int) -> Interaction | None:
-        return self.db.scalar(
+    def get_by_id(self, interaction_id: int, user: User) -> Interaction | None:
+        query = (
             select(Interaction)
             .options(joinedload(Interaction.customer), joinedload(Interaction.owner))
             .where(Interaction.id == interaction_id, Interaction.deleted_at.is_(None))
         )
+        query = query.join(Customer, Customer.id == Interaction.customer_id).where(
+            Customer.deleted_at.is_(None)
+        )
+        return self.db.scalar(apply_customer_access_filter(query, user))
 
     def list(
         self,
@@ -49,6 +56,7 @@ class InteractionRepository:
         sort: str,
         offset: int,
         limit: int,
+        user: User,
     ) -> tuple[list[Interaction], int]:
         filters = [Interaction.deleted_at.is_(None)]
         if customer_id is not None:
@@ -67,8 +75,17 @@ class InteractionRepository:
             select(Interaction)
             .options(joinedload(Interaction.customer), joinedload(Interaction.owner))
             .where(*filters)
+            .join(Customer, Customer.id == Interaction.customer_id)
+            .where(Customer.deleted_at.is_(None))
         )
-        count_q = select(func.count()).select_from(Interaction).where(*filters)
+        count_q = (
+            select(func.count())
+            .select_from(Interaction)
+            .join(Customer, Customer.id == Interaction.customer_id)
+            .where(*filters, Customer.deleted_at.is_(None))
+        )
+        base = apply_customer_access_filter(base, user)
+        count_q = apply_customer_access_filter(count_q, user)
         total = int(self.db.scalar(count_q) or 0)
 
         order = SORT_COLUMNS.get(sort, SORT_COLUMNS["-occurred_at"])

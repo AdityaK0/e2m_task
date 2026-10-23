@@ -24,8 +24,9 @@ def upgrade() -> None:
     sa.Column('name', sa.String(length=120), nullable=False),
     sa.Column('email', sa.String(length=255), nullable=False),
     sa.Column('password_hash', sa.String(length=255), nullable=False),
-    sa.Column('role', sa.Enum('ADMIN', 'CSM', 'VIEWER', name='user_role', native_enum=False, create_constraint=True, length=20), nullable=False),
+    sa.Column('role', sa.Enum('ADMIN', 'MANAGER', name='user_role', native_enum=False, create_constraint=True, length=20), nullable=False),
     sa.Column('is_active', sa.Boolean(), server_default='true', nullable=False),
+    sa.Column('auto_assign_new_customers', sa.Boolean(), server_default='false', nullable=False),
     sa.Column('last_login_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
@@ -44,20 +45,32 @@ def upgrade() -> None:
     sa.Column('website', sa.String(length=255), nullable=True),
     sa.Column('status', sa.Enum('PROSPECT', 'ONBOARDING', 'ACTIVE', 'AT_RISK', 'CHURNED', name='customer_status', native_enum=False, create_constraint=True, length=20), nullable=False),
     sa.Column('health_score', sa.Integer(), nullable=True),
-    sa.Column('assigned_manager_id', sa.Integer(), nullable=True),
     sa.Column('notes', sa.Text(), nullable=True),
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
     sa.CheckConstraint('health_score IS NULL OR (health_score >= 0 AND health_score <= 100)', name='ck_customers_health_score_range'),
-    sa.ForeignKeyConstraint(['assigned_manager_id'], ['users.id'], ondelete='SET NULL'),
     sa.PrimaryKeyConstraint('id')
     )
-    op.create_index(op.f('ix_customers_assigned_manager_id'), 'customers', ['assigned_manager_id'], unique=False)
     op.create_index(op.f('ix_customers_name'), 'customers', ['name'], unique=False)
     op.create_index(op.f('ix_customers_status'), 'customers', ['status'], unique=False)
     op.create_index('ix_customers_status_created_at', 'customers', ['status', 'created_at'], unique=False)
+    op.create_table('customer_managers',
+    sa.Column('customer_id', sa.Integer(), nullable=False),
+    sa.Column('manager_id', sa.Integer(), nullable=False),
+    sa.Column('assigned_by', sa.Integer(), nullable=True),
+    sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.ForeignKeyConstraint(['assigned_by'], ['users.id'], ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['customer_id'], ['customers.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['manager_id'], ['users.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('customer_id', 'manager_id', name='uq_customer_manager')
+    )
+    op.create_index('ix_customer_managers_customer_id', 'customer_managers', ['customer_id'], unique=False)
+    op.create_index('ix_customer_managers_manager_id', 'customer_managers', ['manager_id'], unique=False)
     op.create_table('refresh_sessions',
     sa.Column('user_id', sa.Integer(), nullable=False),
     sa.Column('token_hash', sa.String(length=64), nullable=False),
@@ -141,6 +154,9 @@ def downgrade() -> None:
     op.drop_index('ix_interactions_customer_occurred_at', table_name='interactions')
     op.drop_index(op.f('ix_interactions_customer_id'), table_name='interactions')
     op.drop_table('interactions')
+    op.drop_index('ix_customer_managers_manager_id', table_name='customer_managers')
+    op.drop_index('ix_customer_managers_customer_id', table_name='customer_managers')
+    op.drop_table('customer_managers')
     op.drop_index(op.f('ix_refresh_sessions_user_id'), table_name='refresh_sessions')
     op.drop_index(op.f('ix_refresh_sessions_token_hash'), table_name='refresh_sessions')
     op.drop_index(op.f('ix_refresh_sessions_family_id'), table_name='refresh_sessions')
@@ -149,7 +165,6 @@ def downgrade() -> None:
     op.drop_index('ix_customers_status_created_at', table_name='customers')
     op.drop_index(op.f('ix_customers_status'), table_name='customers')
     op.drop_index(op.f('ix_customers_name'), table_name='customers')
-    op.drop_index(op.f('ix_customers_assigned_manager_id'), table_name='customers')
     op.drop_table('customers')
     op.drop_index(op.f('ix_users_role'), table_name='users')
     op.drop_index(op.f('ix_users_email'), table_name='users')

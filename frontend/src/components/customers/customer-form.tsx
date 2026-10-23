@@ -1,22 +1,25 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowLeft, Building2, Save } from "lucide-react";
+import { ArrowLeft, Save } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Controller, useForm } from "react-hook-form";
+import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
 import { Button, buttonStyles } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
-import { customersApi, type CustomerPayload } from "@/lib/api/customers";
+import type { CustomerPayload } from "@/lib/api/customers";
 import { getApiError } from "@/lib/api/errors";
 import type { Customer, CustomerDetail, CustomerStatus, UserOption } from "@/lib/api/types";
 import { usersApi } from "@/lib/api/users";
 import { CUSTOMER_STATUS_OPTIONS } from "@/lib/labels";
+import { usePermissions } from "@/features/auth/hooks";
+import { createCustomer, updateCustomer } from "@/features/customers/customersSlice";
+import { useAppDispatch } from "@/store/hooks";
 
 const emailPattern = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
@@ -32,7 +35,7 @@ const schema = z.object({
         (/^\d+$/.test(value) && Number(value) >= 0 && Number(value) <= 100),
       "Health score must be a whole number between 0 and 100",
     ),
-  assigned_manager_id: z.string(),
+  manager_ids: z.array(z.string()),
   contact_name: z.string().max(160),
   contact_email: z
     .string()
@@ -63,11 +66,7 @@ function toDefaults(customer?: Customer | null): FormValues {
       customer?.health_score === null || customer?.health_score === undefined
         ? ""
         : String(customer.health_score),
-    assigned_manager_id:
-      customer?.assigned_manager_id === null ||
-      customer?.assigned_manager_id === undefined
-        ? ""
-        : String(customer.assigned_manager_id),
+    manager_ids: customer?.assigned_managers.map((manager) => String(manager.id)) ?? [],
     contact_name: customer?.contact_name ?? "",
     contact_email: customer?.contact_email ?? "",
     contact_phone: customer?.contact_phone ?? "",
@@ -85,8 +84,11 @@ export function CustomerForm({
   mode: "create" | "edit";
 }) {
   const router = useRouter();
+  const dispatch = useAppDispatch();
+  const { isAdmin } = usePermissions();
   const [managers, setManagers] = useState<UserOption[]>([]);
   const [serverError, setServerError] = useState<string | null>(null);
+  const [assignManagersNow, setAssignManagersNow] = useState(false);
 
   const {
     register,
@@ -104,11 +106,12 @@ export function CustomerForm({
   }, [customer, reset]);
 
   useEffect(() => {
+    if (!isAdmin) return;
     usersApi
       .options()
       .then(setManagers)
-      .catch(() => setManagers([]));
-  }, []);
+      .catch((error) => toast.error(getApiError(error)));
+  }, [isAdmin]);
 
   const onSubmit = async (values: FormValues) => {
     setServerError(null);
@@ -123,20 +126,20 @@ export function CustomerForm({
       status: values.status as CustomerStatus,
       health_score:
         values.health_score === "" ? null : Number(values.health_score),
-      assigned_manager_id:
-        values.assigned_manager_id === ""
-          ? null
-          : Number(values.assigned_manager_id),
+      manager_ids:
+        mode === "create" && isAdmin && assignManagersNow
+          ? values.manager_ids.map(Number)
+          : undefined,
       notes: nullable(values.notes),
     };
 
     try {
       if (mode === "create") {
-        const created: Customer = await customersApi.create(payload);
+        const created: Customer = await dispatch(createCustomer(payload)).unwrap();
         toast.success("Customer created");
         router.push(`/customers/${created.id}`);
       } else if (customer) {
-        await customersApi.update(customer.id, payload);
+        await dispatch(updateCustomer({ id: customer.id, payload })).unwrap();
         toast.success("Customer updated");
         router.push(`/customers/${customer.id}`);
       }
@@ -154,7 +157,7 @@ export function CustomerForm({
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6" noValidate>
       {serverError ? (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+        <div className=" border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           {serverError}
         </div>
       ) : null}
@@ -163,7 +166,6 @@ export function CustomerForm({
         <CardHeader
           title="Customer profile"
           description="Core account information and ownership"
-          action={<Building2 className="size-4 text-ink-400" />}
         />
         <CardContent className="grid gap-5 sm:grid-cols-2">
           <Field
@@ -228,27 +230,43 @@ export function CustomerForm({
             />
           </Field>
 
-          <Field
-            label="Assigned manager"
-            htmlFor="assigned_manager_id"
-            error={errors.assigned_manager_id?.message}
-            className="sm:col-span-2"
-          >
-            <Controller
-              control={control}
-              name="assigned_manager_id"
-              render={({ field }) => (
-                <Select id="assigned_manager_id" {...field}>
-                  <option value="">Unassigned</option>
-                  {managers.map((manager) => (
-                    <option key={manager.id} value={manager.id}>
-                      {manager.name} · {manager.role.toUpperCase()}
-                    </option>
-                  ))}
-                </Select>
+          {isAdmin && mode === "create" ? (
+            <div className="space-y-3 sm:col-span-2">
+              <label className="flex items-center gap-2 text-sm text-ink-700">
+                <input
+                  type="checkbox"
+                  checked={assignManagersNow}
+                  onChange={(event) => setAssignManagersNow(event.target.checked)}
+                  className="size-4 accent-brand-600"
+                />
+                Assign managers now
+              </label>
+              {assignManagersNow ? (
+                <Field
+                  label="Managers"
+                  htmlFor="manager_ids"
+                  hint="Select zero or more active managers. You can also assign managers after creating the customer."
+                >
+                  <select
+                    id="manager_ids"
+                    multiple
+                    className="min-h-28 w-full border border-ink-200 bg-white p-2 text-sm"
+                    {...register("manager_ids")}
+                  >
+                    {managers.map((manager) => (
+                      <option key={manager.id} value={manager.id}>
+                        {manager.name}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              ) : (
+                <p className="hint">
+                  You can also assign managers after creating the customer.
+                </p>
               )}
-            />
-          </Field>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 

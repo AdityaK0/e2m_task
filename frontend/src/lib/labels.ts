@@ -5,13 +5,7 @@ import type {
   Sentiment,
 } from "@/lib/api/types";
 
-export type Tone =
-  | "neutral"
-  | "info"
-  | "success"
-  | "warning"
-  | "danger"
-  | "purple";
+export type Tone = "neutral" | "info" | "success" | "warning" | "danger";
 
 export const CUSTOMER_STATUS_LABELS: Record<CustomerStatus, string> = {
   prospect: "Prospect",
@@ -22,8 +16,8 @@ export const CUSTOMER_STATUS_LABELS: Record<CustomerStatus, string> = {
 };
 
 export const CUSTOMER_STATUS_TONES: Record<CustomerStatus, Tone> = {
-  prospect: "info",
-  onboarding: "purple",
+  prospect: "neutral",
+  onboarding: "neutral",
   active: "success",
   at_risk: "warning",
   churned: "danger",
@@ -37,8 +31,8 @@ export const INTERACTION_TYPE_LABELS: Record<InteractionType, string> = {
 };
 
 export const INTERACTION_TYPE_TONES: Record<InteractionType, Tone> = {
-  meeting: "purple",
-  call: "info",
+  meeting: "neutral",
+  call: "neutral",
   email: "neutral",
   other: "neutral",
 };
@@ -53,7 +47,7 @@ export const INSIGHT_STATUS_LABELS: Record<InsightStatus, string> = {
 
 export const INSIGHT_STATUS_TONES: Record<InsightStatus, Tone> = {
   pending: "neutral",
-  running: "info",
+  running: "neutral",
   completed: "success",
   failed: "danger",
   stale: "warning",

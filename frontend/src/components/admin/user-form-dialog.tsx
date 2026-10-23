@@ -16,22 +16,21 @@ import { ROLE_LABELS } from "@/lib/permissions";
 
 const ROLE_OPTIONS: Array<{ value: Role; label: string }> = [
   { value: "admin", label: ROLE_LABELS.admin },
-  { value: "csm", label: ROLE_LABELS.csm },
-  { value: "viewer", label: ROLE_LABELS.viewer },
+  { value: "manager", label: ROLE_LABELS.manager },
 ];
 
 const createSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(120),
   email: z.string().email("Enter a valid email address"),
   password: z.string().min(8, "At least 8 characters").max(72),
-  role: z.enum(["admin", "csm", "viewer"]),
+  role: z.enum(["admin", "manager"]),
 });
 
 type CreateValues = z.infer<typeof createSchema>;
 
 const editSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(120),
-  role: z.enum(["admin", "csm", "viewer"]),
+  role: z.enum(["admin", "manager"]),
   active: z.enum(["true", "false"]),
 });
 
@@ -54,12 +53,12 @@ export function CreateUserDialog({
     formState: { errors, isSubmitting },
   } = useForm<CreateValues>({
     resolver: zodResolver(createSchema),
-    defaultValues: { name: "", email: "", password: "", role: "viewer" },
+    defaultValues: { name: "", email: "", password: "", role: "manager" },
   });
 
   useEffect(() => {
     if (open) {
-      reset({ name: "", email: "", password: "", role: "viewer" });
+      reset({ name: "", email: "", password: "", role: "manager" });
       setServerError(null);
     }
   }, [open, reset]);
@@ -107,7 +106,7 @@ export function CreateUserDialog({
         noValidate
       >
         {serverError ? (
-          <div className="rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs text-rose-700">
+          <div className=" border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs text-rose-700">
             {serverError}
           </div>
         ) : null}
@@ -174,7 +173,7 @@ export function EditUserDialog({
     formState: { errors, isSubmitting },
   } = useForm<EditValues>({
     resolver: zodResolver(editSchema),
-    defaultValues: { name: "", role: "viewer", active: "true" },
+    defaultValues: { name: "", role: "manager", active: "true" },
   });
 
   useEffect(() => {
@@ -236,13 +235,13 @@ export function EditUserDialog({
         noValidate
       >
         {serverError ? (
-          <div className="rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs text-rose-700">
+          <div className=" border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs text-rose-700">
             {serverError}
           </div>
         ) : null}
 
         {isSelf ? (
-          <div className="rounded-xl border border-sky-200 bg-sky-50 px-3.5 py-2.5 text-xs text-sky-800">
+          <div className="border border-ink-200 bg-ink-50 px-3.5 py-2.5 text-xs text-ink-700">
             You cannot change your own role or active status.
           </div>
         ) : null}

@@ -1,14 +1,17 @@
 "use client";
 
 import {
+  Eye,
   KeyRound,
   Pencil,
   Plus,
   RotateCcw,
   Search,
   ShieldCheck,
+  UserCog,
   UserRound,
   Users,
+  UserRoundPen,
 } from "lucide-react";
 import { Suspense, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -19,6 +22,7 @@ import {
   EditUserDialog,
 } from "@/components/admin/user-form-dialog";
 import { Alert } from "@/components/ui/alert";
+import { Dialog } from "@/components/ui/dialog";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,17 +35,29 @@ import { Pagination } from "@/components/ui/pagination";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { RoleBadge } from "@/components/ui/status-badges";
 import { useAuth, usePermissions } from "@/features/auth/hooks";
+import {
+  bulkAssignCustomers,
+  bulkUnassignCustomers,
+} from "@/features/customers/customersSlice";
 import { useDebounce } from "@/hooks/use-debounce";
 import { useQueryState } from "@/hooks/use-query-state";
 import { getApiError } from "@/lib/api/errors";
-import type { Paginated, Role, User } from "@/lib/api/types";
+import { customersApi } from "@/lib/api/customers";
+import type { Customer, Paginated, Role, User } from "@/lib/api/types";
 import { usersApi } from "@/lib/api/users";
 import { ROLE_LABELS } from "@/lib/permissions";
 import { formatDate, formatRelative } from "@/lib/utils";
+import { useAppDispatch } from "@/store/hooks";
 
-const ROLE_VALUES = new Set<string>(["admin", "csm", "viewer"]);
+const ROLE_VALUES = new Set<string>(["admin", "manager"]);
+
+const ROLE_ICONS = {
+  admin: ShieldCheck,
+  manager: UserCog,
+};
 
 function UsersContent() {
+  const dispatch = useAppDispatch();
   const { isAdmin } = usePermissions();
   const { user: currentUser } = useAuth();
   const { getString, getNumber, setParams } = useQueryState();
@@ -63,6 +79,14 @@ function UsersContent() {
   const [editing, setEditing] = useState<User | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<User | null>(null);
   const [revoking, setRevoking] = useState(false);
+  const [assignmentTarget, setAssignmentTarget] = useState<User | null>(null);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [assignmentSearch, setAssignmentSearch] = useState("");
+  const [selectedCustomerIds, setSelectedCustomerIds] = useState<number[]>([]);
+  const [assignAll, setAssignAll] = useState(false);
+  const [unassignMode, setUnassignMode] = useState(false);
+  const [alsoAutoAssign, setAlsoAutoAssign] = useState(false);
+  const [assignmentLoading, setAssignmentLoading] = useState(false);
 
   useEffect(() => {
     if (debouncedSearch !== getString("search")) {
@@ -125,12 +149,80 @@ function UsersContent() {
     }
   };
 
+  const openAssignments = async (user: User) => {
+    setAssignmentTarget(user);
+    setAlsoAutoAssign(user.auto_assign_new_customers);
+    setSelectedCustomerIds([]);
+    setAssignAll(false);
+    setUnassignMode(false);
+    setAssignmentSearch("");
+    try {
+      const allCustomers: Customer[] = [];
+      let pageNumber = 1;
+      let pages = 1;
+      do {
+        const result = await customersApi.list({
+          page: pageNumber,
+          page_size: 100,
+        });
+        allCustomers.push(...result.items);
+        pages = result.pages;
+        pageNumber += 1;
+      } while (pageNumber <= pages);
+      setCustomers(allCustomers);
+    } catch (error) {
+      toast.error(getApiError(error));
+    }
+  };
+
+  const saveAssignments = async () => {
+    if (!assignmentTarget) return;
+    setAssignmentLoading(true);
+    try {
+      let changed = 0;
+      let skipped = 0;
+      if (assignAll || selectedCustomerIds.length > 0) {
+        const payload = {
+          manager_id: assignmentTarget.id,
+          ...(assignAll
+            ? { all: true as const }
+            : { customer_ids: selectedCustomerIds }),
+        };
+        if (unassignMode) {
+          const { result } = await dispatch(
+            bulkUnassignCustomers(payload),
+          ).unwrap();
+          changed = result.unassigned;
+          skipped = result.skipped;
+        } else {
+          const { result } = await dispatch(
+            bulkAssignCustomers(payload),
+          ).unwrap();
+          changed = result.assigned;
+          skipped = result.skipped;
+        }
+      }
+      await usersApi.update(assignmentTarget.id, {
+        auto_assign_new_customers: alsoAutoAssign,
+      });
+      toast.success(
+        `${changed} clients ${unassignMode ? "unassigned" : "assigned"}; ${skipped} skipped`,
+      );
+      setAssignmentTarget(null);
+    } catch (error) {
+      toast.error(getApiError(error));
+    } finally {
+      setReloadKey((value) => value + 1);
+      setAssignmentLoading(false);
+    }
+  };
+
   return (
     <div>
       <PageHeader
         eyebrow="Administration"
-        title="Team & access"
-        description="Manage users, roles, and account status. Roles control what each person can do."
+        title="Team"
+        description="Manage people, roles, and account access. Roles control what each person can do."
         actions={
           <Button onClick={() => setCreateOpen(true)} leftIcon={<Plus className="size-4" />}>
             Add user
@@ -139,37 +231,39 @@ function UsersContent() {
       />
 
       <div className="mb-4 grid gap-3 sm:grid-cols-3">
-        {(["admin", "csm", "viewer"] as Role[]).map((role) => (
-          <div
-            key={role}
-            className="flex items-center gap-3 rounded-xl border border-ink-200/80 bg-white px-4 py-3 shadow-sm"
-          >
-            <div className="flex size-9 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
-              <ShieldCheck className="size-4" />
+        {(["admin", "manager"] as Role[]).map((role) => {
+          const Icon = ROLE_ICONS[role];
+          return (
+            <div
+              key={role}
+              className="flex items-center gap-3  border border-ink-200/80 bg-white px-4 py-3 "
+            >
+              <div className="flex size-8 items-center justify-center  border border-ink-200 bg-ink-50 text-ink-500">
+                <Icon className="size-4" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-ink-800">
+                  {ROLE_LABELS[role]}
+                </p>
+                <p className="mt-0.5 text-[11px] text-ink-400">
+                  {role === "admin"
+                    ? "Full workspace control"
+                    : "Assigned customers and interactions"}
+                </p>
+              </div>
             </div>
-            <div>
-              <p className="text-xs font-semibold text-ink-800">{ROLE_LABELS[role]}</p>
-              <p className="mt-0.5 text-[11px] text-ink-400">
-                {role === "admin"
-                  ? "Full workspace control"
-                  : role === "csm"
-                    ? "Manage accounts and insights"
-                    : "Read-only access"}
-              </p>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      <Card className="mb-4 p-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+      <div className="mb-4 flex flex-col gap-3  border border-ink-200/90 bg-white p-3  sm:flex-row sm:items-center">
           <div className="relative min-w-0 flex-1">
-            <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-ink-400" />
+            <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-ink-400" />
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search by name or email…"
-              className="pl-10"
+              className="h-9 pl-9 text-xs"
               aria-label="Search team"
             />
           </div>
@@ -180,12 +274,11 @@ function UsersContent() {
                 setParams({ role: event.target.value || null, page: null })
               }
               aria-label="Filter by role"
-              className="w-44"
+              className="h-9 w-42 text-xs"
             >
               <option value="">All roles</option>
               <option value="admin">Administrator</option>
-              <option value="csm">CSM</option>
-              <option value="viewer">Viewer</option>
+              <option value="manager">Manager</option>
             </Select>
             <Select
               value={activeRaw}
@@ -193,7 +286,7 @@ function UsersContent() {
                 setParams({ active: event.target.value || null, page: null })
               }
               aria-label="Filter by status"
-              className="w-36"
+              className="h-9 w-34 text-xs"
             >
               <option value="">All statuses</option>
               <option value="true">Active</option>
@@ -210,8 +303,7 @@ function UsersContent() {
               </Button>
             ) : null}
           </div>
-        </div>
-      </Card>
+      </div>
 
       {error ? (
         <Alert variant="error" title="Could not load users" className="mb-4">
@@ -265,9 +357,10 @@ function UsersContent() {
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead>
-                  <tr className="border-b border-ink-100 bg-ink-50/60 text-[11px] tracking-wide text-ink-500 uppercase">
+                  <tr className="border-b border-ink-100 bg-[#fbfbfa] text-[10px] font-medium tracking-[0.1em] text-ink-400 uppercase">
                     <th className="px-5 py-3 font-medium">User</th>
                     <th className="px-4 py-3 font-medium">Role</th>
+                    <th className="px-4 py-3 font-medium">Auto-assign</th>
                     <th className="px-4 py-3 font-medium">Status</th>
                     <th className="px-4 py-3 font-medium">Last login</th>
                     <th className="px-4 py-3 font-medium">Joined</th>
@@ -286,7 +379,7 @@ function UsersContent() {
                               <p className="flex items-center gap-1.5 truncate font-medium text-ink-900">
                                 {user.name}
                                 {isSelf ? (
-                                  <span className="rounded-full bg-brand-100 px-1.5 py-0.5 text-[9px] font-semibold text-brand-700">
+                                  <span className=" bg-ink-100 px-1.5 py-0.5 text-[9px] font-semibold tracking-wide text-ink-500">
                                     YOU
                                   </span>
                                 ) : null}
@@ -297,6 +390,27 @@ function UsersContent() {
                         </td>
                         <td className="px-4 py-3.5">
                           <RoleBadge role={user.role} />
+                        </td>
+                        <td className="px-4 py-3.5">
+                          {user.role === "manager" ? (
+                            <input
+                              type="checkbox"
+                              aria-label={`Auto-assign new customers for ${user.name}`}
+                              title="Automatically assign future customers to this manager"
+                              checked={user.auto_assign_new_customers}
+                              onChange={async (event) => {
+                                try {
+                                  await usersApi.update(user.id, {
+                                    auto_assign_new_customers: event.target.checked,
+                                  });
+                                  toast.success("Auto-assign preference updated");
+                                  setReloadKey((value) => value + 1);
+                                } catch (error) {
+                                  toast.error(getApiError(error));
+                                }
+                              }}
+                            />
+                          ) : <span className="text-xs text-ink-400">—</span>}
                         </td>
                         <td className="px-4 py-3.5">
                           <Badge tone={user.is_active ? "success" : "neutral"} dot>
@@ -317,10 +431,21 @@ function UsersContent() {
                         </td>
                         <td className="px-5 py-3.5">
                           <div className="flex items-center justify-end gap-1">
+                            {user.role === "manager" ? (
+                              <button
+                                type="button"
+                                onClick={() => void openAssignments(user)}
+                                className=" p-1.5 text-ink-400 transition-colors hover:bg-ink-100 hover:text-brand-700"
+                                aria-label={`Assign clients to ${user.name}`}
+                                title="Assign clients"
+                              >
+                                <UserRoundPen className="size-4" />
+                              </button>
+                            ) : null}
                             <button
                               type="button"
                               onClick={() => setEditing(user)}
-                              className="rounded-lg p-1.5 text-ink-400 transition hover:bg-white hover:text-brand-700"
+                              className=" p-1.5 text-ink-400 transition-colors hover:bg-ink-100 hover:text-ink-900"
                               aria-label={`Edit ${user.name}`}
                             >
                               <Pencil className="size-4" />
@@ -329,7 +454,7 @@ function UsersContent() {
                               <button
                                 type="button"
                                 onClick={() => setRevokeTarget(user)}
-                                className="rounded-lg p-1.5 text-ink-400 transition hover:bg-white hover:text-amber-600"
+                                className=" p-1.5 text-ink-400 transition-colors hover:bg-ink-100 hover:text-amber-600"
                                 aria-label={`Revoke sessions for ${user.name}`}
                                 title="Revoke all sessions"
                               >
@@ -381,6 +506,62 @@ function UsersContent() {
         onConfirm={handleRevoke}
         onClose={() => setRevokeTarget(null)}
       />
+
+      <Dialog
+        open={Boolean(assignmentTarget)}
+        onClose={() => setAssignmentTarget(null)}
+        title={`${unassignMode ? "Unassign clients from" : "Assign clients to"} ${assignmentTarget?.name ?? "manager"}`}
+        description="Choose specific customers or all non-deleted customers."
+        dismissible={!assignmentLoading}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setAssignmentTarget(null)}>Cancel</Button>
+            <Button onClick={() => void saveAssignments()} isLoading={assignmentLoading}>
+              Confirm {unassignMode ? "unassign" : "assignment"}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <div className="flex gap-2">
+            <Button size="sm" variant={unassignMode ? "secondary" : "primary"} onClick={() => setUnassignMode(false)}>Assign</Button>
+            <Button size="sm" variant={unassignMode ? "primary" : "secondary"} onClick={() => setUnassignMode(true)}>Unassign</Button>
+          </div>
+          <Input
+            value={assignmentSearch}
+            onChange={(event) => setAssignmentSearch(event.target.value)}
+            placeholder="Search customers"
+            aria-label="Search customers to assign"
+          />
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={assignAll} onChange={(event) => setAssignAll(event.target.checked)} />
+            Select all customers
+          </label>
+          {!assignAll ? (
+            <div className="max-h-48 space-y-2 overflow-auto  border p-3">
+              {customers.filter((customer) => customer.name.toLowerCase().includes(assignmentSearch.toLowerCase())).map((customer) => (
+                <label key={customer.id} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={selectedCustomerIds.includes(customer.id)}
+                    onChange={(event) => setSelectedCustomerIds((ids) =>
+                      event.target.checked ? [...ids, customer.id] : ids.filter((id) => id !== customer.id)
+                    )}
+                  />
+                  {customer.name}
+                </label>
+              ))}
+            </div>
+          ) : null}
+          <label className="flex items-center gap-2 text-sm" title="Automatically assign future customers to this manager">
+            <input type="checkbox" checked={alsoAutoAssign} onChange={(event) => setAlsoAutoAssign(event.target.checked)} />
+            Also keep assigning new customers
+          </label>
+          <p className="text-xs text-ink-500">
+            Confirm {assignAll ? "all non-deleted customers" : `${selectedCustomerIds.length} selected customer(s)`}.
+          </p>
+        </div>
+      </Dialog>
     </div>
   );
 }

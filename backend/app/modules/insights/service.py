@@ -2,6 +2,7 @@ import logging
 import uuid
 from datetime import timedelta
 
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -14,7 +15,9 @@ from app.modules.insights.provider import (
 from app.modules.insights.repository import InsightRepository
 from app.modules.interactions.models import Interaction
 from app.modules.interactions.repository import InteractionRepository
-from app.utils.cache import acquire_lock, invalidate_catalog, release_lock
+from app.modules.users.models import User
+from app.modules.customers.models import CustomerManager
+from app.utils.cache import acquire_lock, invalidate_dashboard_for, release_lock
 from app.utils.exceptions import AppException
 from app.utils.models import utc_now
 
@@ -27,8 +30,8 @@ class InsightService:
         self.repo = InsightRepository(db)
         self.interactions = InteractionRepository(db)
 
-    def get_for_interaction(self, interaction_id: int) -> tuple[MeetingInsight, Interaction]:
-        interaction = self.interactions.get_by_id(interaction_id)
+    def get_for_interaction(self, interaction_id: int, user: User) -> tuple[MeetingInsight, Interaction]:
+        interaction = self.interactions.get_by_id(interaction_id, user)
         if interaction is None:
             raise AppException(
                 "Interaction not found", status_code=404, error_code="INTERACTION_NOT_FOUND"
@@ -46,10 +49,11 @@ class InsightService:
         self,
         interaction_id: int,
         provider: InsightProvider,
+        user: User,
         *,
         force: bool = False,
     ) -> tuple[MeetingInsight, Interaction]:
-        interaction = self.interactions.get_by_id(interaction_id)
+        interaction = self.interactions.get_by_id(interaction_id, user)
         if interaction is None:
             raise AppException(
                 "Interaction not found", status_code=404, error_code="INTERACTION_NOT_FOUND"
@@ -164,7 +168,7 @@ class InsightService:
                 InsightStatus.COMPLETED if still_current else InsightStatus.STALE
             )
             insight = self.repo.save(insight)
-            invalidate_catalog()
+            self._invalidate_dashboard(interaction.customer_id)
             logger.info(
                 "insight generated interaction_id=%s status=%s version=%s",
                 interaction_id,
@@ -179,7 +183,19 @@ class InsightService:
         insight.status = InsightStatus.FAILED
         insight.error_message = message
         insight = self.repo.save(insight)
-        invalidate_catalog()
+        interaction = self.db.get(Interaction, insight.interaction_id)
+        if interaction is not None:
+            self._invalidate_dashboard(interaction.customer_id)
+
+    def _invalidate_dashboard(self, customer_id: int) -> None:
+        manager_ids = set(
+            self.db.scalars(
+                select(CustomerManager.manager_id).where(
+                    CustomerManager.customer_id == customer_id
+                )
+            ).all()
+        )
+        invalidate_dashboard_for(manager_ids)
 
     @staticmethod
     def _is_running(insight: MeetingInsight) -> bool:

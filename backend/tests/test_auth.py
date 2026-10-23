@@ -25,8 +25,9 @@ def test_register_creates_viewer_and_hashes_password(client, db):
         "id": body["user"]["id"],
         "name": "New User",
         "email": "new.user@example.com",
-        "role": "viewer",
+        "role": "manager",
         "is_active": True,
+        "auto_assign_new_customers": False,
         "last_login_at": None,
         "created_at": body["user"]["created_at"],
     }
@@ -34,7 +35,7 @@ def test_register_creates_viewer_and_hashes_password(client, db):
 
     user = db.scalar(select(User).where(User.email == "new.user@example.com"))
     assert user is not None
-    assert user.role == Role.VIEWER
+    assert user.role == Role.MANAGER
     assert user.password_hash != "SecurePass123!"
     assert verify_password("SecurePass123!", user.password_hash)
 

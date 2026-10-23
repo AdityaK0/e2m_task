@@ -44,6 +44,6 @@ export function SentimentBadge({ sentiment }: { sentiment: Sentiment }) {
 }
 
 export function RoleBadge({ role }: { role: Role }) {
-  const tone = role === "admin" ? "purple" : role === "csm" ? "info" : "neutral";
+  const tone = role === "admin" ? "info" : "neutral";
   return <Badge tone={tone}>{ROLE_SHORT_LABELS[role]}</Badge>;
 }

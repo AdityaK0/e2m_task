@@ -49,9 +49,9 @@ def _serialize(insight: MeetingInsight, interaction: Interaction) -> MeetingInsi
 def get_insight(
     interaction_id: int,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(require_permissions(Permission.INSIGHTS_READ)),
+    current_user: User = Depends(require_permissions(Permission.INSIGHTS_READ)),
 ):
-    insight, interaction = InsightService(db).get_for_interaction(interaction_id)
+    insight, interaction = InsightService(db).get_for_interaction(interaction_id, current_user)
     return _serialize(insight, interaction)
 
 
@@ -62,12 +62,12 @@ def generate_insight(
     interaction_id: int,
     data: InsightGenerationRequest | None = None,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(require_permissions(Permission.INSIGHTS_GENERATE)),
+    current_user: User = Depends(require_permissions(Permission.INSIGHTS_GENERATE)),
     provider: InsightProvider = Depends(get_insight_provider),
 ):
     body = data or InsightGenerationRequest()
     insight, interaction = InsightService(db).generate(
-        interaction_id, provider, force=body.force
+        interaction_id, provider, current_user, force=body.force
     )
     return _serialize(insight, interaction)
 

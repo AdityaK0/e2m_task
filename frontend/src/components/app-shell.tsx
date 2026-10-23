@@ -2,13 +2,12 @@
 
 import {
   ArrowUpRight,
-  ContactRound,
+  CalendarDays,
   LayoutDashboard,
+  Lightbulb,
   LogOut,
   Menu,
-  MessagesSquare,
   ShieldCheck,
-  Sparkles,
   UserRound,
   Users,
   X,
@@ -25,17 +24,57 @@ import { cn } from "@/lib/utils";
 import { useAppDispatch } from "@/store/hooks";
 
 import { Avatar } from "./ui/avatar";
-import { LogoMark } from "./ui/logo";
+import { Logo, LogoMark } from "./ui/logo";
 import { Spinner } from "./ui/spinner";
 
 const NAV_ITEMS = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
   { href: "/customers", label: "Customers", icon: Users },
-  { href: "/interactions", label: "Interactions", icon: MessagesSquare },
+  { href: "/interactions", label: "Meetings", icon: CalendarDays },
+  { href: "/insights", label: "AI Insights", icon: Lightbulb },
 ];
 
 function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+function NavLink({
+  href,
+  label,
+  icon: Icon,
+  active,
+  onNavigate,
+}: {
+  href: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  active: boolean;
+  onNavigate?: () => void;
+}) {
+  return (
+    <Link
+      href={href}
+      onClick={onNavigate}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "group flex h-9 items-center gap-2.5  px-2.5 text-[13px] font-medium transition-colors",
+        active
+          ? "bg-ink-950 text-white"
+          : "text-ink-600 hover:bg-ink-100/80 hover:text-ink-950",
+      )}
+    >
+      <Icon
+        className={cn(
+          "size-4 transition-colors",
+          active ? "text-white/75" : "text-ink-400 group-hover:text-ink-600",
+        )}
+      />
+      <span className="truncate">{label}</span>
+      {active ? (
+        <span className="ml-auto size-1.5 bg-brand-400" aria-hidden="true" />
+      ) : null}
+    </Link>
+  );
 }
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
@@ -54,123 +93,75 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2.5 px-5 pt-5 pb-6">
-        <LogoMark className="size-9 shadow-brand-950/40" />
-        <div className="leading-none">
-          <p className="text-[15px] font-semibold tracking-tight text-white">Northstar</p>
-          <p className="mt-1 text-[10px] font-medium tracking-[0.18em] text-white/40 uppercase">
-            Customer Success
-          </p>
-        </div>
+      <div className="flex h-[68px] items-center px-5">
+        <Logo href="/dashboard" />
       </div>
 
-      <div className="mx-3 mb-5 rounded-xl border border-white/8 bg-white/[0.04] px-3 py-2.5">
-        <div className="flex items-center gap-2 text-[11px] font-medium text-white/60">
-          <Sparkles className="size-3.5 text-brand-300" />
-          AI-native workspace
-        </div>
-        <p className="mt-1 text-[11px] leading-relaxed text-white/35">
-          Meetings into decisions, automatically.
-        </p>
-      </div>
-
-      <nav className="flex-1 space-y-1 overflow-y-auto px-3 scroll-thin" aria-label="Main">
-        <p className="px-2.5 pb-2 text-[10px] font-semibold tracking-[0.16em] text-white/30 uppercase">
+      <nav className="flex-1 overflow-y-auto px-3 py-3 scroll-thin" aria-label="Main">
+        <p className="px-2.5 pb-2 text-[10px] font-semibold tracking-[0.14em] text-ink-400 uppercase">
           Workspace
         </p>
-        {NAV_ITEMS.map((item) => {
-          const active = isActive(pathname, item.href);
-          const Icon = item.icon;
-          return (
-            <Link
+        <div className="space-y-0.5">
+          {NAV_ITEMS.map((item) => (
+            <NavLink
               key={item.href}
-              href={item.href}
-              onClick={onNavigate}
-              aria-current={active ? "page" : undefined}
-              className={cn(
-                "group flex items-center gap-3 rounded-xl px-2.5 py-2.5 text-[13px] font-medium transition-all",
-                active
-                  ? "bg-white/[0.09] text-white shadow-sm ring-1 ring-white/10"
-                  : "text-white/55 hover:bg-white/[0.05] hover:text-white/90",
-              )}
-            >
-              <Icon
-                className={cn(
-                  "size-4.5 transition",
-                  active ? "text-brand-300" : "text-white/35 group-hover:text-white/60",
-                )}
-              />
-              {item.label}
-              {active ? (
-                <span className="ml-auto size-1.5 rounded-full bg-brand-300 shadow-[0_0_8px_2px] shadow-brand-400/50" />
-              ) : null}
-            </Link>
-          );
-        })}
+              {...item}
+              active={isActive(pathname, item.href)}
+              onNavigate={onNavigate}
+            />
+          ))}
+        </div>
 
         {isAdmin ? (
           <>
-            <p className="px-2.5 pt-5 pb-2 text-[10px] font-semibold tracking-[0.16em] text-white/30 uppercase">
+            <p className="px-2.5 pt-6 pb-2 text-[10px] font-semibold tracking-[0.14em] text-ink-400 uppercase">
               Administration
             </p>
-            <Link
+            <NavLink
               href="/admin/users"
-              onClick={onNavigate}
-              aria-current={isActive(pathname, "/admin/users") ? "page" : undefined}
-              className={cn(
-                "group flex items-center gap-3 rounded-xl px-2.5 py-2.5 text-[13px] font-medium transition-all",
-                isActive(pathname, "/admin/users")
-                  ? "bg-white/[0.09] text-white shadow-sm ring-1 ring-white/10"
-                  : "text-white/55 hover:bg-white/[0.05] hover:text-white/90",
-              )}
-            >
-              <ShieldCheck
-                className={cn(
-                  "size-4.5",
-                  isActive(pathname, "/admin/users")
-                    ? "text-brand-300"
-                    : "text-white/35 group-hover:text-white/60",
-                )}
-              />
-              Team & access
-            </Link>
+              label="Team"
+              icon={ShieldCheck}
+              active={isActive(pathname, "/admin/users")}
+              onNavigate={onNavigate}
+            />
           </>
         ) : null}
       </nav>
 
-      <div className="border-t border-white/8 p-3">
-        <div className="rounded-xl bg-white/[0.04] p-2.5">
-          <div className="flex items-center gap-2.5">
-            <Avatar name={user?.name ?? "User"} size="sm" className="ring-white/10" />
+      <div className="px-3 pb-4">
+        <div className=" border border-ink-200/80 bg-white p-1 ">
+          <div className="flex items-center gap-2.5 px-2 py-2">
+            <Avatar name={user?.name ?? "User"} size="sm" />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-semibold text-white/90">
+              <p className="truncate text-xs font-semibold text-ink-900">
                 {user?.name ?? "—"}
               </p>
-              <p className="truncate text-[10px] text-white/40">
+              <p className="mt-0.5 truncate text-[10px] text-ink-500">
                 {user ? ROLE_LABELS[user.role] : ""}
               </p>
             </div>
             <Link
               href="/profile"
               onClick={onNavigate}
-              className="rounded-lg p-1.5 text-white/40 transition hover:bg-white/10 hover:text-white"
+              className=" p-1.5 text-ink-400 transition-colors hover:bg-ink-100 hover:text-ink-800"
               aria-label="Profile settings"
             >
-              <UserRound className="size-4" />
+              <UserRound className="size-3.5" />
             </Link>
             <button
               type="button"
               onClick={handleLogout}
-              className="rounded-lg p-1.5 text-white/40 transition hover:bg-white/10 hover:text-rose-300"
+              className=" p-1.5 text-ink-400 transition-colors hover:bg-rose-50 hover:text-rose-600"
               aria-label="Sign out"
             >
-              <LogOut className="size-4" />
+              <LogOut className="size-3.5" />
             </button>
           </div>
         </div>
-        <p className="mt-3 flex items-center justify-center gap-1 text-[10px] text-white/25">
-          <ContactRound className="size-3" />
-          Northstar CS · v1.0
+        <p className="mt-3 px-1 text-[10px] leading-4 text-ink-400">
+          E2M Client Insights
+          <br />
+          Customer Success &amp; AI Insights
         </p>
       </div>
     </div>
@@ -179,9 +170,9 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
 function Splash({ label = "Preparing your workspace" }: { label?: string }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-ink-50">
+    <div className="flex min-h-screen items-center justify-center bg-[#f7f7f5]">
       <div className="flex flex-col items-center gap-4">
-        <LogoMark className="size-11" />
+        <LogoMark className="size-10" />
         <div className="flex items-center gap-2 text-xs font-medium text-ink-500">
           <Spinner className="size-3.5" />
           {label}…
@@ -213,8 +204,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen lg:flex">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 bg-ink-950 bg-[radial-gradient(circle_at_20%_0%,rgba(99,102,241,0.20),transparent_45%)] shadow-sidebar lg:block">
+    <div className="min-h-screen bg-[#f7f7f5] lg:flex">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[244px] border-r border-ink-200/80 bg-[#fbfbfa] lg:block">
         <SidebarContent />
       </aside>
 
@@ -222,15 +213,15 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="fixed inset-0 z-40 lg:hidden">
           <button
             type="button"
-            className="absolute inset-0 bg-ink-950/50 backdrop-blur-sm"
+            className="absolute inset-0 bg-ink-950/35 backdrop-blur-[2px]"
             onClick={() => setMobileOpen(false)}
             aria-label="Close navigation"
           />
-          <aside className="animate-fade-in absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-ink-950 bg-[radial-gradient(circle_at_20%_0%,rgba(99,102,241,0.20),transparent_45%)] shadow-sidebar">
+          <aside className="animate-fade-in absolute inset-y-0 left-0 w-72 max-w-[85vw] border-r border-ink-200 bg-[#fbfbfa] ">
             <button
               type="button"
               onClick={() => setMobileOpen(false)}
-              className="absolute top-4 right-3 rounded-lg p-2 text-white/50 hover:bg-white/10 hover:text-white"
+              className="absolute top-4 right-3  p-2 text-ink-500 hover:bg-ink-100 hover:text-ink-900"
               aria-label="Close navigation"
             >
               <X className="size-4" />
@@ -240,38 +231,31 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       ) : null}
 
-      <div className="min-w-0 flex-1 lg:pl-64">
-        <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-ink-200/70 bg-white/75 px-4 backdrop-blur-xl lg:hidden">
+      <div className="min-w-0 flex-1 lg:pl-[244px]">
+        <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-ink-200/80 bg-[#f7f7f5]/90 px-4 backdrop-blur-xl lg:hidden">
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
-            className="rounded-lg p-2 text-ink-600 hover:bg-ink-100"
+            className="-ml-2  p-2 text-ink-600 hover:bg-ink-100"
             aria-label="Open navigation"
           >
             <Menu className="size-5" />
           </button>
-          <div className="flex items-center gap-2">
-            <LogoMark className="size-7" />
-            <span className="text-sm font-semibold text-ink-900">Northstar</span>
-          </div>
-          <Link
-            href="/profile"
-            className="rounded-full"
-            aria-label="Open profile"
-          >
+          <Logo href="/dashboard" />
+          <Link href="/profile" className="" aria-label="Open profile">
             <Avatar name={user.name} size="sm" />
           </Link>
         </header>
 
-        <main className="mx-auto w-full max-w-[1440px] animate-fade-in px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+        <main className="mx-auto w-full max-w-[1440px] animate-fade-in px-4 py-6 sm:px-6 lg:px-9 lg:py-9">
           {children}
         </main>
 
-        <footer className="mx-auto flex w-full max-w-[1440px] flex-wrap items-center justify-between gap-2 px-4 pb-6 text-[11px] text-ink-400 sm:px-6 lg:px-8">
-          <span>Northstar Customer Success Platform</span>
+        <footer className="mx-auto flex w-full max-w-[1440px] flex-wrap items-center justify-between gap-2 px-4 pb-6 text-[11px] text-ink-400 sm:px-6 lg:px-9">
+          <span>E2M Client Insights</span>
           <Link
             href="/profile"
-            className="inline-flex items-center gap-1 transition hover:text-brand-700"
+            className="inline-flex items-center gap-1 transition-colors hover:text-ink-800"
           >
             Account settings
             <ArrowUpRight className="size-3" />

@@ -17,7 +17,7 @@ const VARIANTS = {
     icon: CheckCircle2,
   },
   info: {
-    className: "border-sky-200 bg-sky-50 text-sky-800",
+    className: "border-ink-200 bg-ink-50 text-ink-700",
     icon: Info,
   },
 };
@@ -40,7 +40,7 @@ export function Alert({
   return (
     <div
       className={cn(
-        "flex gap-3 rounded-xl border px-4 py-3 text-sm leading-relaxed",
+        "flex gap-3  border px-4 py-3 text-sm leading-relaxed",
         config.className,
         className,
       )}

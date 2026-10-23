@@ -4,10 +4,11 @@ import {
   AlertTriangle,
   CalendarClock,
   Cpu,
+  Lightbulb,
   ListChecks,
+  Loader2,
   RefreshCw,
   ShieldAlert,
-  Sparkles,
 } from "lucide-react";
 
 import { Alert } from "@/components/ui/alert";
@@ -29,7 +30,7 @@ function severityTone(severity: string | null): string {
     case "medium":
       return "border-amber-200 bg-amber-50 text-amber-700";
     case "low":
-      return "border-sky-200 bg-sky-50 text-sky-700";
+      return "border-ink-200 bg-ink-50 text-ink-600";
     default:
       return "border-ink-200 bg-ink-50 text-ink-600";
   }
@@ -61,18 +62,11 @@ export function InsightPanel({
   return (
     <Card>
       <CardHeader
-        title={
-          <span className="flex items-center gap-2">
-            <span className="flex size-6 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
-              <Sparkles className="size-3.5" />
-            </span>
-            AI meeting insight
-          </span>
-        }
+        title="AI insight"
         description={
           insight?.generated_at
             ? `Generated ${formatDateTime(insight.generated_at)}`
-            : "Structured summary, sentiment, actions, and risks"
+            : "Summary, sentiment, actions, and risks from this meeting."
         }
         action={
           <div className="flex items-center gap-2">
@@ -84,11 +78,19 @@ export function InsightPanel({
                 onClick={onGenerate}
                 isLoading={generating}
                 disabled={
-                  !hasNotes || insight?.status === "running" || configured === false
+                  !hasNotes ||
+                  insight?.status === "running" ||
+                  configured === false
                 }
-                leftIcon={!generating ? <RefreshCw className="size-3.5" /> : undefined}
+                leftIcon={
+                  !generating ? <RefreshCw className="size-3.5" /> : undefined
+                }
               >
-                {insight ? (isStale ? "Refresh insight" : "Regenerate") : "Generate insight"}
+                {insight
+                  ? isStale
+                    ? "Refresh"
+                    : "Regenerate"
+                  : "Generate insight"}
               </Button>
             ) : null}
           </div>
@@ -97,15 +99,16 @@ export function InsightPanel({
 
       {generating || insight?.status === "running" ? (
         <CardContent className="space-y-4">
-          <div className="flex items-center gap-3 rounded-xl border border-brand-100 bg-brand-50/60 px-4 py-3">
-            <span className="relative flex size-8 items-center justify-center rounded-full bg-brand-600/10">
-              <span className="absolute inline-flex size-full animate-ping rounded-full bg-brand-400/30" />
-              <Sparkles className="relative size-4 text-brand-600" />
+          <div className="flex items-center gap-3  border border-ink-200 bg-ink-50/60 px-4 py-3">
+            <span className="flex size-8 items-center justify-center  border border-ink-200 bg-white">
+              <Loader2 className="size-4 animate-spin text-ink-500" />
             </span>
             <div>
-              <p className="text-sm font-medium text-brand-900">Analyzing meeting notes…</p>
-              <p className="text-xs text-brand-700/70">
-                Extracting a structured summary, sentiment, action items, and risks.
+              <p className="text-[13px] font-medium text-ink-900">
+                Analyzing meeting notes
+              </p>
+              <p className="mt-0.5 text-xs text-ink-500">
+                Extracting a summary, sentiment, action items, and risks.
               </p>
             </div>
           </div>
@@ -125,12 +128,12 @@ export function InsightPanel({
         </CardContent>
       ) : !insight ? (
         <EmptyState
-          icon={<Sparkles className="size-5" />}
+          icon={<Lightbulb className="size-5" />}
           title="No insight generated yet"
           description={
             hasNotes
               ? configured === false
-                ? "AI is not configured on this server. Add an API key to enable generation."
+                ? "AI generation is not connected in this environment. Existing analyses remain available."
                 : "Turn these notes into a concise summary with sentiment, action items, and risks."
               : "Add meeting notes before generating an AI insight."
           }
@@ -140,7 +143,7 @@ export function InsightPanel({
                 onClick={onGenerate}
                 isLoading={generating}
                 disabled={configured === false}
-                leftIcon={<Sparkles className="size-4" />}
+                leftIcon={<Lightbulb className="size-4" />}
               >
                 Generate insight
               </Button>
@@ -148,18 +151,18 @@ export function InsightPanel({
           }
         />
       ) : (
-        <CardContent className="space-y-5">
+        <CardContent className="space-y-6">
           {configured === false ? (
-            <Alert variant="warning" title="AI is not configured">
-              This server has no AI provider key. Existing insights are still available,
-              but new generation is disabled.
+            <Alert variant="warning" title="AI is not connected">
+              Existing insights are still available, but new generation is
+              disabled on this server.
             </Alert>
           ) : null}
 
           {isStale ? (
             <Alert variant="warning" title="Notes have changed">
-              This insight was generated before the latest note update. Refresh it to
-              bring the summary and actions up to date.
+              This insight was generated before the latest note update. Refresh
+              it to bring the summary and actions up to date.
             </Alert>
           ) : null}
 
@@ -176,27 +179,28 @@ export function InsightPanel({
                 {insight.sentiment ? (
                   <SentimentBadge sentiment={insight.sentiment} />
                 ) : null}
-                <span className="text-xs text-ink-400">
+                <span className="text-[11px] text-ink-400">
                   {insight.action_item_count}{" "}
                   {insight.action_item_count === 1 ? "action" : "actions"} ·{" "}
-                  {insight.risk_count} {insight.risk_count === 1 ? "risk" : "risks"}
+                  {insight.risk_count}{" "}
+                  {insight.risk_count === 1 ? "risk" : "risks"}
                 </span>
               </div>
 
-              <div className="rounded-xl border border-ink-100 bg-gradient-to-br from-ink-50/80 to-white px-4 py-3.5">
-                <p className="text-[11px] font-semibold tracking-wide text-ink-400 uppercase">
+              <div className="border-l-2 border-brand-400 pl-4">
+                <p className="text-[10px] font-semibold tracking-[0.12em] text-ink-400 uppercase">
                   Summary
                 </p>
-                <p className="mt-1.5 text-sm leading-relaxed whitespace-pre-wrap text-ink-700">
+                <p className="mt-2 text-sm leading-7 whitespace-pre-wrap text-ink-700">
                   {insight.summary}
                 </p>
               </div>
 
               <div>
-                <h3 className="flex items-center gap-2 text-sm font-semibold text-ink-900">
-                  <ListChecks className="size-4 text-brand-600" />
+                <h3 className="flex items-center gap-2 text-[13px] font-semibold text-ink-900">
+                  <ListChecks className="size-4 text-ink-400" />
                   Action items
-                  <span className="rounded-full bg-ink-100 px-2 py-0.5 text-[10px] font-medium text-ink-500">
+                  <span className="text-[11px] font-normal text-ink-400">
                     {insight.action_items.length}
                   </span>
                 </h3>
@@ -205,21 +209,25 @@ export function InsightPanel({
                     No explicit commitments were captured.
                   </p>
                 ) : (
-                  <ul className="mt-3 space-y-2">
+                  <ul className="mt-3 divide-y divide-ink-100 border-y border-ink-100">
                     {insight.action_items.map((item, index) => (
                       <li
                         key={`${item.description}-${index}`}
-                        className="flex items-start gap-3 rounded-xl border border-ink-100 px-3.5 py-3"
+                        className="flex items-start gap-3 py-3.5"
                       >
-                        <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-brand-50 text-[10px] font-semibold text-brand-700">
+                        <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center  bg-ink-100 text-[10px] font-semibold text-ink-600">
                           {index + 1}
                         </span>
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm leading-relaxed text-ink-800">
+                          <p className="text-[13px] leading-6 text-ink-800">
                             {item.description}
                           </p>
                           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-ink-500">
-                            <span>{item.owner ? `Owner: ${item.owner}` : "Owner: unassigned"}</span>
+                            <span>
+                              {item.owner
+                                ? `Owner: ${item.owner}`
+                                : "Owner: unassigned"}
+                            </span>
                             {item.due_date ? (
                               <span className="inline-flex items-center gap-1">
                                 <CalendarClock className="size-3" />
@@ -235,10 +243,10 @@ export function InsightPanel({
               </div>
 
               <div>
-                <h3 className="flex items-center gap-2 text-sm font-semibold text-ink-900">
-                  <ShieldAlert className="size-4 text-amber-600" />
+                <h3 className="flex items-center gap-2 text-[13px] font-semibold text-ink-900">
+                  <ShieldAlert className="size-4 text-amber-500" />
                   Risks &amp; watchouts
-                  <span className="rounded-full bg-ink-100 px-2 py-0.5 text-[10px] font-medium text-ink-500">
+                  <span className="text-[11px] font-normal text-ink-400">
                     {insight.risks.length}
                   </span>
                 </h3>
@@ -247,20 +255,20 @@ export function InsightPanel({
                     No material risks were identified in this conversation.
                   </p>
                 ) : (
-                  <ul className="mt-3 space-y-2">
+                  <ul className="mt-3 divide-y divide-ink-100 border-y border-ink-100">
                     {insight.risks.map((risk, index) => (
                       <li
                         key={`${risk.description}-${index}`}
-                        className="flex items-start gap-3 rounded-xl border border-ink-100 px-3.5 py-3"
+                        className="flex items-start gap-3 py-3.5"
                       >
-                        <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-500" />
+                        <AlertTriangle className="mt-1 size-4 shrink-0 text-amber-500" />
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm leading-relaxed text-ink-800">
+                          <p className="text-[13px] leading-6 text-ink-800">
                             {risk.description}
                           </p>
                           <span
                             className={cn(
-                              "mt-1.5 inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium capitalize",
+                              "mt-1.5 inline-flex  border px-2 py-0.5 text-[10px] font-medium capitalize",
                               severityTone(risk.severity),
                             )}
                           >
@@ -279,7 +287,8 @@ export function InsightPanel({
                   {insight.provider ?? "provider"} · {insight.model ?? "model"}
                 </span>
                 <span>
-                  Notes v{insight.notes_version} · Generation v{insight.generation_version}
+                  Notes v{insight.notes_version} · Generation v
+                  {insight.generation_version}
                 </span>
               </div>
             </>

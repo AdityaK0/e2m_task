@@ -30,15 +30,12 @@ READ_ONLY_PERMISSIONS = {
 
 ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
     Role.ADMIN: set(Permission),
-    Role.CSM: {
+    Role.MANAGER: {
         *READ_ONLY_PERMISSIONS,
         Permission.CUSTOMERS_WRITE,
         Permission.INTERACTIONS_WRITE,
-        Permission.INTERACTIONS_DELETE,
         Permission.INSIGHTS_GENERATE,
-        Permission.USERS_READ,
     },
-    Role.VIEWER: set(READ_ONLY_PERMISSIONS),
 }
 
 

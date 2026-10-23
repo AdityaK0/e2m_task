@@ -25,7 +25,7 @@ logger = logging.getLogger("app")
 def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.APP_NAME,
-        description="AI-powered Customer Success Platform: customers, interactions, AI meeting insights, RBAC, Redis caching, and PostgreSQL-backed dashboards.",
+        description="E2M Client Insights: customers, meetings, AI insights, RBAC, Redis caching, and PostgreSQL-backed dashboards.",
         version="1.0.0",
         docs_url="/docs",
         redoc_url="/redoc",

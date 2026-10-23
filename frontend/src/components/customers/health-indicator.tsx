@@ -19,8 +19,8 @@ export function HealthIndicator({
 
   return (
     <div className={cn("flex items-center gap-2", compact ? "min-w-16" : "min-w-28")}>
-      <div className={cn("h-1.5 flex-1 overflow-hidden rounded-full", tone.track)}>
-        <div className={cn("h-full rounded-full", tone.bar)} style={{ width: `${score}%` }} />
+      <div className={cn("h-1.5 flex-1 overflow-hidden ", tone.track)}>
+        <div className={cn("h-full ", tone.bar)} style={{ width: `${score}%` }} />
       </div>
       <span className={cn("text-xs font-semibold tabular-nums", tone.text)}>
         {score}

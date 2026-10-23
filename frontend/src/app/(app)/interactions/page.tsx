@@ -20,7 +20,7 @@ import { toast } from "sonner";
 import { InteractionForm } from "@/components/interactions/interaction-form";
 import { Alert } from "@/components/ui/alert";
 import { Avatar } from "@/components/ui/avatar";
-import { Button, buttonStyles } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -67,10 +67,10 @@ const TYPE_ICONS = {
 };
 
 const TYPE_STYLES = {
-  meeting: "bg-violet-50 text-violet-600 border-violet-100",
-  call: "bg-sky-50 text-sky-600 border-sky-100",
-  email: "bg-ink-100 text-ink-600 border-ink-200",
-  other: "bg-ink-100 text-ink-600 border-ink-200",
+  meeting: "border-ink-200 bg-ink-50/70 text-ink-600",
+  call: "border-ink-200 bg-ink-50 text-ink-600",
+  email: "border-ink-200 bg-ink-50/70 text-ink-600",
+  other: "border-ink-200 bg-ink-50/70 text-ink-600",
 };
 
 function toDateStart(value: string): string | undefined {
@@ -208,7 +208,7 @@ function InteractionsContent() {
     setDeleting(true);
     try {
       await interactionsApi.remove(pendingDelete.id);
-      toast.success("Interaction deleted");
+      toast.success("Meeting deleted");
       setPendingDelete(null);
       setReloadKey((value) => value + 1);
     } catch (err) {
@@ -221,117 +221,119 @@ function InteractionsContent() {
   return (
     <div>
       <PageHeader
-        eyebrow="Activity"
-        title="Interactions"
-        description="Every meeting, call, and email — with notes ready for AI analysis."
+        eyebrow="Conversations"
+        title="Meetings"
+        description="Every meeting, call, and email, with notes ready for AI analysis."
         actions={
           canDo("interactions:write") ? (
             <Button onClick={openCreate} leftIcon={<Plus className="size-4" />}>
-              Log interaction
+              New meeting
             </Button>
           ) : null
         }
       />
 
-      <Card className="mb-4 p-4">
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-3 lg:flex-row">
-            <div className="relative min-w-0 flex-1">
-              <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-ink-400" />
-              <Input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search by title, notes, or customer…"
-                className="pl-10"
-                aria-label="Search interactions"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3 lg:flex">
-              <Select
-                value={typeParam}
-                onChange={(event) =>
-                  setParams({ type: event.target.value || null, page: null })
-                }
-                aria-label="Filter by type"
-                className="min-w-32"
-              >
-                <option value="">All types</option>
-                {INTERACTION_TYPE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </Select>
-              <Select
-                value={customerParam ? String(customerParam) : ""}
-                onChange={(event) =>
-                  setParams({ customer_id: event.target.value || null, page: null })
-                }
-                aria-label="Filter by customer"
-                className="min-w-40"
-              >
-                <option value="">All customers</option>
-                {customers.map((customer) => (
-                  <option key={customer.id} value={customer.id}>
-                    {customer.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
+      <div className="mb-4 flex flex-col gap-3  border border-ink-200/90 bg-white p-3 ">
+        <div className="flex flex-col gap-2 lg:flex-row">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-ink-400" />
+            <Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search by title, notes, or customer…"
+              className="h-9 pl-9 text-xs"
+              aria-label="Search meetings"
+            />
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-medium text-ink-500">From</span>
-              <Input
-                type="date"
-                value={fromParam}
-                onChange={(event) =>
-                  setParams({ from: event.target.value || null, page: null })
-                }
-                className="w-36 py-2"
-                aria-label="From date"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-medium text-ink-500">To</span>
-              <Input
-                type="date"
-                value={toParam}
-                onChange={(event) =>
-                  setParams({ to: event.target.value || null, page: null })
-                }
-                className="w-36 py-2"
-                aria-label="To date"
-              />
-            </div>
+          <div className="grid grid-cols-2 gap-2 lg:flex">
             <Select
-              value={sortParam}
-              onChange={(event) => setParams({ sort: event.target.value, page: null })}
-              aria-label="Sort interactions"
-              className="w-44"
+              value={typeParam}
+              onChange={(event) =>
+                setParams({ type: event.target.value || null, page: null })
+              }
+              aria-label="Filter by type"
+              className="h-9 min-w-30 text-xs"
             >
-              {SORT_OPTIONS.map((option) => (
+              <option value="">All types</option>
+              {INTERACTION_TYPE_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
               ))}
             </Select>
-            {hasFilters ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={resetFilters}
-                leftIcon={<RotateCcw className="size-3.5" />}
-              >
-                Reset filters
-              </Button>
-            ) : null}
+            <Select
+              value={customerParam ? String(customerParam) : ""}
+              onChange={(event) =>
+                setParams({ customer_id: event.target.value || null, page: null })
+              }
+              aria-label="Filter by customer"
+              className="h-9 min-w-36 text-xs"
+            >
+              <option value="">All customers</option>
+              {customers.map((customer) => (
+                <option key={customer.id} value={customer.id}>
+                  {customer.name}
+                </option>
+              ))}
+            </Select>
           </div>
         </div>
-      </Card>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] font-medium tracking-wide text-ink-400 uppercase">
+              From
+            </span>
+            <Input
+              type="date"
+              value={fromParam}
+              onChange={(event) =>
+                setParams({ from: event.target.value || null, page: null })
+              }
+              className="h-8 w-34 text-xs"
+              aria-label="From date"
+            />
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] font-medium tracking-wide text-ink-400 uppercase">
+              To
+            </span>
+            <Input
+              type="date"
+              value={toParam}
+              onChange={(event) =>
+                setParams({ to: event.target.value || null, page: null })
+              }
+              className="h-8 w-34 text-xs"
+              aria-label="To date"
+            />
+          </div>
+          <Select
+            value={sortParam}
+            onChange={(event) => setParams({ sort: event.target.value, page: null })}
+            aria-label="Sort meetings"
+            className="h-8 w-40 text-xs"
+          >
+            {SORT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
+          {hasFilters ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={resetFilters}
+              leftIcon={<RotateCcw className="size-3.5" />}
+            >
+              Reset filters
+            </Button>
+          ) : null}
+        </div>
+      </div>
 
       {error ? (
-        <Alert variant="error" title="Could not load interactions" className="mb-4">
+        <Alert variant="error" title="Could not load meetings" className="mb-4">
           {error}
         </Alert>
       ) : null}
@@ -342,15 +344,15 @@ function InteractionsContent() {
             {data ? (
               <>
                 <span className="font-semibold text-ink-800">{data.total}</span>{" "}
-                {data.total === 1 ? "interaction" : "interactions"}
+                {data.total === 1 ? "meeting" : "meetings"}
               </>
             ) : (
-              "Loading interactions…"
+              "Loading meetings…"
             )}
           </p>
           <span className="hidden items-center gap-1 text-[11px] text-ink-400 sm:flex">
             <MessageSquareText className="size-3.5" />
-            Chronological activity
+            Meeting history
           </span>
         </div>
 
@@ -358,7 +360,7 @@ function InteractionsContent() {
           <div className="divide-y divide-ink-100">
             {Array.from({ length: 5 }).map((_, index) => (
               <div key={index} className="flex gap-4 px-5 py-4">
-                <Skeleton className="size-10 shrink-0 rounded-xl" />
+                <Skeleton className="size-9 shrink-0 " />
                 <div className="flex-1 space-y-2">
                   <Skeleton className="h-4 w-2/5" />
                   <Skeleton className="h-3 w-3/5" />
@@ -371,11 +373,11 @@ function InteractionsContent() {
             icon={
               hasFilters ? <Search className="size-5" /> : <MessageSquareText className="size-5" />
             }
-            title={hasFilters ? "No matching interactions" : "No interactions yet"}
+            title={hasFilters ? "No matching meetings" : "No meetings yet"}
             description={
               hasFilters
                 ? "Try a different search, type, customer, or date range."
-                : "Log your first meeting to start turning conversations into actions."
+                : "Add your first meeting to turn conversations into actions."
             }
             action={
               hasFilters ? (
@@ -384,7 +386,7 @@ function InteractionsContent() {
                 </Button>
               ) : canDo("interactions:write") ? (
                 <Button onClick={openCreate} leftIcon={<Plus className="size-4" />}>
-                  Log interaction
+                  New meeting
                 </Button>
               ) : null
             }
@@ -397,11 +399,11 @@ function InteractionsContent() {
                 return (
                   <div
                     key={interaction.id}
-                    className="group flex items-start gap-3.5 px-5 py-4 transition hover:bg-ink-50/70"
+                    className="group flex items-start gap-3.5 px-5 py-3.5 transition-colors hover:bg-ink-50/70"
                   >
                     <div
                       className={cn(
-                        "mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-2xl border",
+                        "mt-0.5 flex size-9 shrink-0 items-center justify-center  border",
                         TYPE_STYLES[interaction.type],
                       )}
                     >
@@ -411,7 +413,7 @@ function InteractionsContent() {
                       <div className="flex flex-wrap items-center gap-2">
                         <Link
                           href={`/interactions/${interaction.id}`}
-                          className="truncate text-sm font-medium text-ink-900 transition group-hover:text-brand-700"
+                          className="truncate text-[13px] font-medium text-ink-900 transition-colors group-hover:text-brand-700"
                         >
                           {interaction.title}
                         </Link>
@@ -420,7 +422,7 @@ function InteractionsContent() {
                       <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-500">
                         <Link
                           href={`/customers/${interaction.customer_id}`}
-                          className="font-medium text-ink-600 hover:text-brand-700"
+                          className="font-medium text-ink-600 transition-colors hover:text-ink-950"
                         >
                           {interaction.customer.name}
                         </Link>
@@ -445,7 +447,7 @@ function InteractionsContent() {
                     <div className="flex shrink-0 items-center gap-1">
                       <Link
                         href={`/interactions/${interaction.id}`}
-                        className="rounded-lg p-1.5 text-ink-400 transition hover:bg-white hover:text-brand-700"
+                        className=" p-1.5 text-ink-400 transition-colors hover:bg-ink-100 hover:text-ink-900"
                         aria-label={`View ${interaction.title}`}
                       >
                         <ChevronRight className="size-4" />
@@ -454,7 +456,7 @@ function InteractionsContent() {
                         <button
                           type="button"
                           onClick={() => openEdit(interaction)}
-                          className="rounded-lg p-1.5 text-ink-400 transition hover:bg-white hover:text-brand-700"
+                          className=" p-1.5 text-ink-400 transition-colors hover:bg-ink-100 hover:text-ink-900"
                           aria-label={`Edit ${interaction.title}`}
                         >
                           <Pencil className="size-4" />
@@ -464,7 +466,7 @@ function InteractionsContent() {
                         <button
                           type="button"
                           onClick={() => setPendingDelete(interaction)}
-                          className="rounded-lg p-1.5 text-ink-400 transition hover:bg-rose-50 hover:text-rose-600"
+                          className=" p-1.5 text-ink-400 transition-colors hover:bg-rose-50 hover:text-rose-600"
                           aria-label={`Delete ${interaction.title}`}
                         >
                           <Trash2 className="size-4" />
@@ -499,9 +501,9 @@ function InteractionsContent() {
 
       <ConfirmDialog
         open={Boolean(pendingDelete)}
-        title="Delete this interaction?"
-        description="The interaction and its AI insight will be hidden from the workspace."
-        confirmLabel="Delete interaction"
+        title="Delete this meeting?"
+        description="The meeting and its AI insight will be hidden from the workspace."
+        confirmLabel="Delete meeting"
         destructive
         isLoading={deleting}
         onConfirm={handleDelete}

@@ -27,6 +27,8 @@ import { Pagination } from "@/components/ui/pagination";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { CustomerStatusBadge } from "@/components/ui/status-badges";
 import { usePermissions } from "@/features/auth/hooks";
+import { deleteCustomer, setCustomers } from "@/features/customers/customersSlice";
+import { useAppDispatch } from "@/store/hooks";
 import { useDebounce } from "@/hooks/use-debounce";
 import { useQueryState } from "@/hooks/use-query-state";
 import { customersApi, type CustomerSort } from "@/lib/api/customers";
@@ -57,7 +59,8 @@ const STATUS_VALUES = new Set<string>([
 const SORT_VALUES = new Set<string>(SORT_OPTIONS.map((option) => option.value));
 
 function CustomersContent() {
-  const { canDo } = usePermissions();
+  const dispatch = useAppDispatch();
+  const { canDo, isAdmin } = usePermissions();
   const { getString, getNumber, setParams } = useQueryState();
 
   const initialStatus = getString("status");
@@ -80,11 +83,12 @@ function CustomersContent() {
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
+    if (!isAdmin) return;
     usersApi
       .options()
       .then(setManagers)
       .catch(() => setManagers([]));
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
     if (debouncedSearch !== getString("search")) {
@@ -106,7 +110,10 @@ function CustomersContent() {
         page_size: 20,
       })
       .then((response) => {
-        if (!cancelled) setData(response);
+        if (!cancelled) {
+          setData(response);
+          dispatch(setCustomers(response.items));
+        }
       })
       .catch((err) => {
         if (!cancelled) {
@@ -135,7 +142,7 @@ function CustomersContent() {
     if (!pendingDelete) return;
     setDeleting(true);
     try {
-      await customersApi.remove(pendingDelete.id);
+      await dispatch(deleteCustomer(pendingDelete.id)).unwrap();
       toast.success(`${pendingDelete.name} deleted`);
       setPendingDelete(null);
       setReloadKey((value) => value + 1);
@@ -149,9 +156,9 @@ function CustomersContent() {
   return (
     <div>
       <PageHeader
-        eyebrow="Accounts"
+        eyebrow="Client portfolio"
         title="Customers"
-        description="Manage your customer portfolio, ownership, and account health."
+        description="Accounts, ownership, and health across your customer portfolio."
         actions={
           canDo("customers:write") ? (
             <Link href="/customers/new" className={buttonStyles()}>
@@ -162,41 +169,41 @@ function CustomersContent() {
         }
       />
 
-      <Card className="mb-4 p-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-          <div className="relative min-w-0 flex-1">
-            <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-ink-400" />
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search by customer, company, or contact…"
-              className="pl-10"
-              aria-label="Search customers"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3 sm:flex sm:items-center">
-            <Select
-              value={statusParam}
-              onChange={(event) =>
-                setParams({ status: event.target.value || null, page: null })
-              }
-              aria-label="Filter by status"
-              className="min-w-36"
-            >
-              <option value="">All statuses</option>
-              {CUSTOMER_STATUS_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </Select>
+      <div className="mb-4 flex flex-col gap-3  border border-ink-200/90 bg-white p-3  lg:flex-row lg:items-center">
+        <div className="relative min-w-0 flex-1">
+          <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-ink-400" />
+          <Input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search by customer, company, or contact…"
+            className="h-9 pl-9 text-xs"
+            aria-label="Search customers"
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
+          <Select
+            value={statusParam}
+            onChange={(event) =>
+              setParams({ status: event.target.value || null, page: null })
+            }
+            aria-label="Filter by status"
+            className="h-9 min-w-34 text-xs"
+          >
+            <option value="">All statuses</option>
+            {CUSTOMER_STATUS_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
+          {isAdmin ? (
             <Select
               value={managerParam ? String(managerParam) : ""}
               onChange={(event) =>
                 setParams({ manager: event.target.value || null, page: null })
               }
               aria-label="Filter by manager"
-              className="min-w-40"
+              className="h-9 min-w-36 text-xs"
             >
               <option value="">All managers</option>
               {managers.map((manager) => (
@@ -205,34 +212,34 @@ function CustomersContent() {
                 </option>
               ))}
             </Select>
-            <Select
-              value={sortParam}
-              onChange={(event) =>
-                setParams({ sort: event.target.value, page: null })
-              }
-              aria-label="Sort customers"
-              className="col-span-2 min-w-44 sm:col-span-1"
+          ) : null}
+          <Select
+            value={sortParam}
+            onChange={(event) =>
+              setParams({ sort: event.target.value, page: null })
+            }
+            aria-label="Sort customers"
+            className="col-span-2 h-9 min-w-40 text-xs sm:col-span-1"
+          >
+            {SORT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
+          {hasFilters ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={resetFilters}
+              leftIcon={<RotateCcw className="size-3.5" />}
+              className="col-span-2 sm:col-span-1"
             >
-              {SORT_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </Select>
-            {hasFilters ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={resetFilters}
-                leftIcon={<RotateCcw className="size-3.5" />}
-                className="col-span-2 sm:col-span-1"
-              >
-                Reset
-              </Button>
-            ) : null}
-          </div>
+              Reset
+            </Button>
+          ) : null}
         </div>
-      </Card>
+      </div>
 
       {error ? (
         <Alert variant="error" title="Could not load customers" className="mb-4">
@@ -287,7 +294,7 @@ function CustomersContent() {
             <div className="hidden overflow-x-auto md:block">
               <table className="w-full text-left text-sm">
                 <thead>
-                  <tr className="border-b border-ink-100 bg-ink-50/60 text-[11px] tracking-wide text-ink-500 uppercase">
+                  <tr className="border-b border-ink-100 bg-[#fbfbfa] text-[10px] font-medium tracking-[0.1em] text-ink-400 uppercase">
                     <th className="px-5 py-3 font-medium">Customer</th>
                     <th className="px-4 py-3 font-medium">Status</th>
                     <th className="px-4 py-3 font-medium">Health</th>
@@ -317,11 +324,11 @@ function CustomersContent() {
                         <HealthIndicator score={customer.health_score} compact />
                       </td>
                       <td className="px-4 py-3.5">
-                        {customer.assigned_manager ? (
+                        {customer.assigned_managers.length > 0 ? (
                           <div className="flex items-center gap-2">
-                            <Avatar name={customer.assigned_manager.name} size="sm" />
+                            <Avatar name={customer.assigned_managers[0]?.name ?? ""} size="sm" />
                             <span className="max-w-32 truncate text-xs text-ink-600">
-                              {customer.assigned_manager.name}
+                              {customer.assigned_managers.map((manager) => manager.name).join(", ")}
                             </span>
                           </div>
                         ) : (
@@ -337,7 +344,7 @@ function CustomersContent() {
                         <div className="flex items-center justify-end gap-1">
                           <Link
                             href={`/customers/${customer.id}`}
-                            className="rounded-lg p-1.5 text-ink-400 transition hover:bg-white hover:text-brand-700"
+                            className=" p-1.5 text-ink-400 transition hover:bg-white hover:text-brand-700"
                             aria-label={`View ${customer.name}`}
                           >
                             <ChevronRight className="size-4" />
@@ -345,7 +352,7 @@ function CustomersContent() {
                           {canDo("customers:write") ? (
                             <Link
                               href={`/customers/${customer.id}/edit`}
-                              className="rounded-lg p-1.5 text-ink-400 transition hover:bg-white hover:text-brand-700"
+                              className=" p-1.5 text-ink-400 transition hover:bg-white hover:text-brand-700"
                               aria-label={`Edit ${customer.name}`}
                             >
                               <Pencil className="size-4" />
@@ -355,7 +362,7 @@ function CustomersContent() {
                             <button
                               type="button"
                               onClick={() => setPendingDelete(customer)}
-                              className="rounded-lg p-1.5 text-ink-400 transition hover:bg-rose-50 hover:text-rose-600"
+                              className=" p-1.5 text-ink-400 transition hover:bg-rose-50 hover:text-rose-600"
                               aria-label={`Delete ${customer.name}`}
                             >
                               <Trash2 className="size-4" />
@@ -389,10 +396,10 @@ function CustomersContent() {
                   </div>
                   <div className="mt-3 flex items-center justify-between">
                     <span className="flex items-center gap-1.5 text-xs text-ink-500">
-                      {customer.assigned_manager ? (
+                      {customer.assigned_managers.length > 0 ? (
                         <>
-                          <Avatar name={customer.assigned_manager.name} size="sm" />
-                          {customer.assigned_manager.name}
+                          <Avatar name={customer.assigned_managers[0]?.name ?? ""} size="sm" />
+                          {customer.assigned_managers.map((manager) => manager.name).join(", ")}
                         </>
                       ) : (
                         "Unassigned"

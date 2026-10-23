@@ -22,28 +22,26 @@ def test_registration_cannot_self_elevate(client, db):
             "role": "admin",
         },
     )
-    assert response.status_code == 201, response.text
-    assert response.json()["user"]["role"] == "viewer"
-    user = db.scalar(select(User).where(User.email == "sneaky@example.com"))
-    assert user.role == Role.VIEWER
+    assert response.status_code == 422
+    assert db.scalar(select(User).where(User.email == "sneaky@example.com")) is None
 
 
 def test_role_and_auth_config_endpoints(client):
     roles = client.get("/api/v1/auth/roles")
     assert roles.status_code == 200
-    assert [item["value"] for item in roles.json()] == ["admin", "csm", "viewer"]
+    assert [item["value"] for item in roles.json()] == ["manager"]
 
     config = client.get("/api/v1/auth/config")
     assert config.status_code == 200
     assert config.json() == {
         "registration_enabled": True,
-        "roles": ["admin", "csm", "viewer"],
+        "roles": ["manager"],
     }
 
 
 def test_viewer_is_read_only(client, make_user):
-    viewer = make_user("viewer@example.com", role=Role.VIEWER)
-    csm = make_user("csm@example.com", role=Role.CSM)
+    viewer = make_user("viewer@example.com", role=Role.MANAGER)
+    csm = make_user("csm@example.com", role=Role.MANAGER)
     admin = make_user("admin@example.com", role=Role.ADMIN)
     viewer_token, _ = login(client, viewer.email, viewer.password)
     csm_token, _ = login(client, csm.email, csm.password)
@@ -59,64 +57,41 @@ def test_viewer_is_read_only(client, make_user):
         headers=auth_headers(csm_token),
     ).json()
 
-    checks = [
-        ("get", "/api/v1/customers", None),
-        ("get", f"/api/v1/customers/{customer['id']}", None),
-        ("get", "/api/v1/interactions", None),
-        ("get", f"/api/v1/interactions/{interaction['id']}", None),
-        ("get", "/api/v1/dashboard/summary", None),
-        ("get", "/api/v1/auth/me", None),
-    ]
-    for method, url, payload in checks:
-        kwargs = {"headers": auth_headers(viewer_token)}
-        if payload is not None:
-            kwargs["json"] = payload
-        response = getattr(client, method)(url, **kwargs)
-        assert response.status_code == 200, (url, response.text)
-
-    forbidden = [
-        ("post", "/api/v1/customers", customer_payload(name="Nope")),
-        ("patch", f"/api/v1/customers/{customer['id']}", {"name": "Nope"}),
+    assert client.get("/api/v1/customers", headers=auth_headers(viewer_token)).json()["total"] == 0
+    assert client.get(
+        f"/api/v1/customers/{customer['id']}", headers=auth_headers(viewer_token)
+    ).status_code == 404
+    assert client.get(
+        f"/api/v1/interactions/{interaction['id']}", headers=auth_headers(viewer_token)
+    ).status_code == 404
+    assert client.get("/api/v1/dashboard/summary", headers=auth_headers(viewer_token)).json()["total_customers"] == 0
+    assert client.get("/api/v1/auth/me", headers=auth_headers(viewer_token)).status_code == 200
+    own_customer = client.post(
+        "/api/v1/customers",
+        json=customer_payload(name="Manager-owned"),
+        headers=auth_headers(viewer_token),
+    )
+    assert own_customer.status_code == 201
+    for method, url, payload in [
         ("delete", f"/api/v1/customers/{customer['id']}", None),
-        ("post", "/api/v1/interactions", interaction_payload(customer["id"])),
-        ("patch", f"/api/v1/interactions/{interaction['id']}", {"title": "Nope"}),
-        ("delete", f"/api/v1/interactions/{interaction['id']}", None),
-        (
-            "post",
-            f"/api/v1/interactions/{interaction['id']}/insights",
-            None,
-        ),
         ("get", "/api/v1/users", None),
-        (
-            "post",
-            "/api/v1/users",
-            {
-                "name": "Nope",
-                "email": "nope@example.com",
-                "password": "SecurePass123!",
-                "role": "admin",
-            },
-        ),
-        ("patch", f"/api/v1/users/{admin.id}", {"role": "viewer"}),
-    ]
-    for method, url, payload in forbidden:
+        ("get", "/api/v1/users/options", None),
+        ("patch", f"/api/v1/users/{admin.id}", {"role": "manager"}),
+    ]:
         kwargs = {"headers": auth_headers(viewer_token)}
         if payload is not None:
             kwargs["json"] = payload
-        response = getattr(client, method)(url, **kwargs)
-        assert response.status_code == 403, (method, url, response.text)
-        assert response.json()["error_code"] == "FORBIDDEN"
+        assert getattr(client, method)(url, **kwargs).status_code == 403
 
 
 def test_csm_permissions(client, make_user):
-    csm = make_user("csm@example.com", role=Role.CSM)
+    csm = make_user("csm@example.com", role=Role.MANAGER)
     admin = make_user("admin@example.com", role=Role.ADMIN)
-    viewer = make_user("viewer@example.com", role=Role.VIEWER)
+    viewer = make_user("viewer@example.com", role=Role.MANAGER)
     token, _ = login(client, csm.email, csm.password)
 
     users = client.get("/api/v1/users", headers=auth_headers(token))
-    assert users.status_code == 200
-    assert users.json()["total"] == 3
+    assert users.status_code == 403
 
     create_user = client.post(
         "/api/v1/users",
@@ -152,13 +127,10 @@ def test_csm_permissions(client, make_user):
         f"/api/v1/interactions/{interaction.json()['id']}",
         headers=auth_headers(token),
     )
-    assert deleted.status_code == 204
+    assert deleted.status_code == 403
 
     options = client.get("/api/v1/users/options", headers=auth_headers(token))
-    assert options.status_code == 200
-    assert [item["role"] for item in options.json()] == ["admin", "csm"]
-    assert viewer.id not in {item["id"] for item in options.json()}
-    assert admin.id in {item["id"] for item in options.json()}
+    assert options.status_code == 403
 
 
 def test_admin_user_management(client, make_user, db):
@@ -171,7 +143,7 @@ def test_admin_user_management(client, make_user, db):
             "name": "  New CSM  ",
             "email": "NEW.CSM@Example.com",
             "password": "SecurePass123!",
-            "role": "csm",
+            "role": "manager",
         },
         headers=auth_headers(admin_token),
     )
@@ -179,7 +151,7 @@ def test_admin_user_management(client, make_user, db):
     new_user = created.json()
     assert new_user["name"] == "New CSM"
     assert new_user["email"] == "new.csm@example.com"
-    assert new_user["role"] == "csm"
+    assert new_user["role"] == "manager"
 
     duplicate = client.post(
         "/api/v1/users",
@@ -187,7 +159,7 @@ def test_admin_user_management(client, make_user, db):
             "name": "Duplicate",
             "email": "new.csm@example.com",
             "password": "SecurePass123!",
-            "role": "viewer",
+            "role": "manager",
         },
         headers=auth_headers(admin_token),
     )
@@ -200,14 +172,14 @@ def test_admin_user_management(client, make_user, db):
             "name": "Weak",
             "email": "weak@example.com",
             "password": "short",
-            "role": "viewer",
+            "role": "manager",
         },
         headers=auth_headers(admin_token),
     )
     assert weak.status_code == 422
 
     filtered = client.get(
-        "/api/v1/users?role=csm&search=new", headers=auth_headers(admin_token)
+        "/api/v1/users?role=manager&search=new", headers=auth_headers(admin_token)
     ).json()
     assert filtered["total"] == 1
     assert filtered["items"][0]["id"] == new_user["id"]
@@ -223,7 +195,7 @@ def test_admin_user_management(client, make_user, db):
 
     self_role = client.patch(
         f"/api/v1/users/{admin.id}",
-        json={"role": "viewer"},
+        json={"role": "manager"},
         headers=auth_headers(admin_token),
     )
     assert self_role.status_code == 409
@@ -250,7 +222,7 @@ def test_admin_user_management(client, make_user, db):
 
 def test_deactivation_and_session_revocation(client, make_user, db):
     admin = make_user("admin@example.com", role=Role.ADMIN)
-    target = make_user("target@example.com", role=Role.CSM)
+    target = make_user("target@example.com", role=Role.MANAGER)
     admin_token, _ = login(client, admin.email, admin.password)
     target_token, _ = login(client, target.email, target.password)
 
@@ -280,7 +252,7 @@ def test_deactivation_and_session_revocation(client, make_user, db):
 
 def test_admin_can_revoke_sessions_but_not_own(client, make_user, db):
     admin = make_user("admin@example.com", role=Role.ADMIN)
-    target = make_user("target@example.com", role=Role.CSM)
+    target = make_user("target@example.com", role=Role.MANAGER)
     admin_token, _ = login(client, admin.email, admin.password)
     login(client, target.email, target.password)
 
@@ -304,11 +276,11 @@ def test_admin_can_revoke_sessions_but_not_own(client, make_user, db):
     assert own.json()["error_code"] == "CANNOT_MODIFY_SELF"
 
 
-def test_csm_can_read_user_options(client, make_user):
-    csm = make_user("csm@example.com", role=Role.CSM)
+def test_manager_cannot_read_user_options(client, make_user):
+    csm = make_user("csm@example.com", role=Role.MANAGER)
     token, _ = login(client, csm.email, csm.password)
     options = client.get("/api/v1/users/options", headers=auth_headers(token))
-    assert options.status_code == 200
+    assert options.status_code == 403
 
 
 def test_health_and_openapi_expose_api_routes(client):
@@ -332,7 +304,7 @@ def test_unknown_route_uses_error_envelope(client):
 
 
 def test_logout_all_with_csrf_cookie_set_does_not_affect_access(client, make_user):
-    user = make_user("csrf@example.com", role=Role.VIEWER)
+    user = make_user("csrf@example.com", role=Role.MANAGER)
     token, _ = login(client, user.email, user.password)
     # CSRF applies only to cookie-authenticated auth mutations, not bearer APIs.
     client.cookies.set(

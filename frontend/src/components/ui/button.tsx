@@ -13,21 +13,21 @@ export type ButtonSize = "sm" | "md" | "lg" | "icon";
 
 const VARIANTS: Record<ButtonVariant, string> = {
   primary:
-    "bg-brand-600 text-white shadow-sm shadow-brand-600/25 hover:bg-brand-700 active:bg-brand-800",
+    "bg-ink-950 text-white hover:bg-ink-800 active:bg-ink-900",
   secondary:
-    "border border-ink-200 bg-white text-ink-700 shadow-sm hover:border-ink-300 hover:bg-ink-50",
+    "border border-ink-200 bg-white text-ink-700  hover:border-ink-300 hover:bg-ink-50",
   ghost: "text-ink-600 hover:bg-ink-100 hover:text-ink-900",
   danger:
-    "bg-rose-600 text-white shadow-sm shadow-rose-600/20 hover:bg-rose-700 active:bg-rose-800",
+    "bg-rose-600 text-white hover:bg-rose-700 active:bg-rose-800",
   outline:
-    "border border-brand-200 bg-brand-50/60 text-brand-700 hover:border-brand-300 hover:bg-brand-100",
+    "border border-brand-200 bg-brand-50/50 text-brand-700 hover:border-brand-300 hover:bg-brand-100/70",
 };
 
 const SIZES: Record<ButtonSize, string> = {
-  sm: "h-8.5 gap-1.5 rounded-lg px-3 text-xs",
-  md: "h-10 gap-2 rounded-xl px-4 text-sm",
-  lg: "h-11 gap-2 rounded-xl px-5 text-sm",
-  icon: "size-9 rounded-xl",
+  sm: "h-8 gap-1.5  px-3 text-xs",
+  md: "h-9.5 gap-2  px-4 text-[13px]",
+  lg: "h-11 gap-2  px-5 text-sm",
+  icon: "size-9 ",
 };
 
 interface ButtonStyleOptions {

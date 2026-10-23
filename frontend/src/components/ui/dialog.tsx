@@ -67,7 +67,7 @@ export function Dialog({
         aria-labelledby={titleId}
         aria-describedby={description ? descriptionId : undefined}
         className={cn(
-          "animate-slide-up max-h-[92vh] w-full overflow-y-auto rounded-t-2xl border border-ink-200 bg-white shadow-float sm:rounded-2xl",
+          "animate-slide-up max-h-[92vh] w-full overflow-y-auto  border border-ink-200 bg-white  ",
           WIDTHS[size],
         )}
       >
@@ -86,7 +86,7 @@ export function Dialog({
             type="button"
             onClick={onClose}
             disabled={!dismissible}
-            className="rounded-lg p-1.5 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700 disabled:opacity-40"
+            className=" p-1.5 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700 disabled:opacity-40"
             aria-label="Close dialog"
           >
             <X className="size-4" />

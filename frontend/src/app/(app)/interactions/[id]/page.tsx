@@ -143,7 +143,7 @@ export default function InteractionDetailPage() {
     setDeleting(true);
     try {
       await interactionsApi.remove(interaction.id);
-      toast.success("Interaction deleted");
+      toast.success("Meeting deleted");
       router.push("/interactions");
     } catch (err) {
       toast.error(getApiError(err));
@@ -152,12 +152,12 @@ export default function InteractionDetailPage() {
     }
   };
 
-  if (loading && !interaction) return <LoadingPanel label="Loading interaction" />;
+  if (loading && !interaction) return <LoadingPanel label="Loading meeting" />;
 
   if (error || !interaction) {
     return (
-      <Alert variant="error" title="Could not load interaction">
-        {error ?? "Interaction not found."}
+      <Alert variant="error" title="Could not load meeting">
+        {error ?? "Meeting not found."}
       </Alert>
     );
   }
@@ -165,15 +165,15 @@ export default function InteractionDetailPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Interaction"
+        eyebrow="Meeting"
         backHref="/interactions"
-        backLabel="Back to interactions"
+        backLabel="All meetings"
         title={interaction.title}
         description={
           <span className="flex flex-wrap items-center gap-2">
             <Link
               href={`/customers/${interaction.customer_id}`}
-              className="font-medium text-brand-700 hover:underline"
+              className="font-medium text-ink-700 underline decoration-ink-300 underline-offset-4 transition hover:decoration-ink-900"
             >
               {interaction.customer.name}
             </Link>
@@ -198,7 +198,7 @@ export default function InteractionDetailPage() {
                 variant="ghost"
                 size="icon"
                 onClick={() => setConfirmDelete(true)}
-                aria-label="Delete interaction"
+                aria-label="Delete meeting"
                 className="text-ink-400 hover:bg-rose-50 hover:text-rose-600"
               >
                 <Trash2 className="size-4" />
@@ -226,9 +226,8 @@ export default function InteractionDetailPage() {
               description={
                 interaction.notes
                   ? `Version ${interaction.notes_version} · updated ${formatRelative(interaction.updated_at)}`
-                  : "No notes captured for this interaction"
+                  : "No notes captured for this meeting"
               }
-              action={<FileText className="size-4 text-ink-400" />}
             />
             <CardContent>
               {interaction.notes ? (
@@ -237,7 +236,7 @@ export default function InteractionDetailPage() {
                 </p>
               ) : (
                 <Alert variant="warning" title="Notes required for AI">
-                  Add meeting notes to this interaction before generating an insight.
+                  Add meeting notes before generating an insight.
                 </Alert>
               )}
             </CardContent>
@@ -246,7 +245,7 @@ export default function InteractionDetailPage() {
 
         <div className="space-y-6">
           <Card>
-            <CardHeader title="Interaction details" />
+            <CardHeader title="Meeting details" />
             <CardContent className="py-1">
               <DetailLine icon={CalendarClock} label="Occurred">
                 {formatDateTime(interaction.occurred_at)}
@@ -269,7 +268,7 @@ export default function InteractionDetailPage() {
                     {interaction.participants.map((participant) => (
                       <span
                         key={participant}
-                        className="rounded-full border border-ink-200 bg-ink-50 px-2 py-0.5 text-[11px] text-ink-600"
+                        className=" border border-ink-200 bg-ink-50 px-2 py-0.5 text-[11px] text-ink-600"
                       >
                         {participant}
                       </span>
@@ -288,9 +287,9 @@ export default function InteractionDetailPage() {
             <CardContent>
               <Link
                 href={`/customers/${interaction.customer_id}`}
-                className="flex items-center gap-3 rounded-xl border border-ink-100 px-3.5 py-3 transition hover:bg-ink-50"
+                className="flex items-center gap-3  border border-ink-100 px-3.5 py-3 transition-colors hover:bg-ink-50"
               >
-                <div className="flex size-10 items-center justify-center rounded-xl bg-brand-50 text-brand-700">
+                <div className="flex size-9 items-center justify-center  bg-ink-100 text-ink-600">
                   <UserRound className="size-4" />
                 </div>
                 <div className="min-w-0 flex-1">
@@ -305,17 +304,6 @@ export default function InteractionDetailPage() {
             </CardContent>
           </Card>
 
-          <div className="rounded-2xl border border-brand-100 bg-gradient-to-br from-brand-50/80 to-white p-4">
-            <p className="flex items-center gap-2 text-xs font-semibold text-brand-900">
-              <CalendarClock className="size-4" />
-              Insight workflow
-            </p>
-            <ol className="mt-2 space-y-1.5 text-[11px] leading-relaxed text-ink-500">
-              <li>1. Notes are treated as untrusted meeting data.</li>
-              <li>2. AI returns a validated summary, sentiment, actions, and risks.</li>
-              <li>3. Editing notes marks the existing insight as stale.</li>
-            </ol>
-          </div>
         </div>
       </div>
 
@@ -328,9 +316,9 @@ export default function InteractionDetailPage() {
 
       <ConfirmDialog
         open={confirmDelete}
-        title="Delete this interaction?"
-        description="The interaction and its AI insight will be hidden from the workspace."
-        confirmLabel="Delete interaction"
+        title="Delete this meeting?"
+        description="The meeting and its AI insight will be hidden from the workspace."
+        confirmLabel="Delete meeting"
         destructive
         isLoading={deleting}
         onConfirm={handleDelete}

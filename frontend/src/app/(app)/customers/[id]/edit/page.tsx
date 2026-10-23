@@ -56,9 +56,9 @@ export default function EditCustomerPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Customers"
+        eyebrow="Client portfolio"
         backHref={`/customers/${customer.id}`}
-        backLabel={`Back to ${customer.name}`}
+        backLabel={customer.name}
         title={`Edit ${customer.name}`}
         description="Update account details, health, and ownership."
       />

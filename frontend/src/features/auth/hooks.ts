@@ -11,6 +11,6 @@ export function usePermissions() {
     role: user?.role,
     canDo: (permission: Permission) => can(user?.role, permission),
     isAdmin: user?.role === "admin",
-    canEdit: user?.role === "admin" || user?.role === "csm",
+    canEdit: user?.role === "admin" || user?.role === "manager",
   };
 }

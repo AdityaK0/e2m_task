@@ -1,4 +1,4 @@
-export type Role = "admin" | "csm" | "viewer";
+export type Role = "admin" | "manager";
 
 export type CustomerStatus =
   | "prospect"
@@ -24,6 +24,7 @@ export interface User {
   email: string;
   role: Role;
   is_active: boolean;
+  auto_assign_new_customers: boolean;
   last_login_at: string | null;
   created_at: string;
 }
@@ -52,8 +53,7 @@ export interface Customer {
   website: string | null;
   status: CustomerStatus;
   health_score: number | null;
-  assigned_manager_id: number | null;
-  assigned_manager: UserSummary | null;
+  assigned_managers: UserSummary[];
   notes: string | null;
   created_at: string;
   updated_at: string;

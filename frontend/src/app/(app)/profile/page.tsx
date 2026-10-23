@@ -102,16 +102,16 @@ export default function ProfilePage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Account"
+        eyebrow="Settings"
         title="Profile & security"
-        description="Manage your personal details and password."
+        description="Manage your personal details and keep your account secure."
       />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <Card>
           <CardHeader
             title="Profile details"
-            description="Update your name as it appears across the workspace"
+            description="Your name and account identity."
             action={<RoleBadge role={user.role} />}
           />
           <CardContent>
@@ -144,7 +144,7 @@ export default function ProfilePage() {
                 <p className="hint">Email cannot be changed from this screen.</p>
               </Field>
 
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-ink-100 bg-ink-50/70 px-3.5 py-2.5 text-xs text-ink-500">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-100 pt-4 text-xs text-ink-500">
                 <span>Last login</span>
                 <span className="font-medium text-ink-700">
                   {formatDateTime(user.last_login_at)}
@@ -163,8 +163,7 @@ export default function ProfilePage() {
         <Card>
           <CardHeader
             title="Change password"
-            description="Update your password. You'll be signed out of other sessions in line with security policy."
-            action={<KeyRound className="size-4 text-ink-400" />}
+            description="Updating your password signs you out of all sessions."
           />
           <CardContent>
             <form

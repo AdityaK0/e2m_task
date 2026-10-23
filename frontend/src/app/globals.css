@@ -1,63 +1,87 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-  --font-display: "Sora", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-  --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  --font-sans: Inter, ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  --font-display: var(--font-sans);
+  --font-mono: "SFMono-Regular", "Cascadia Code", "Roboto Mono", Consolas, monospace;
+  --radius-xs: 0px;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --radius-3xl: 0px;
+  --radius-4xl: 0px;
 
-  --color-brand-50: #eef2ff;
-  --color-brand-100: #e0e7ff;
-  --color-brand-200: #c7d2fe;
-  --color-brand-300: #a5b4fc;
-  --color-brand-400: #818cf8;
-  --color-brand-500: #6366f1;
-  --color-brand-600: #4f46e5;
-  --color-brand-700: #4338ca;
-  --color-brand-800: #3730a3;
-  --color-brand-900: #312e81;
-  --color-brand-950: #1e1b4b;
+  --color-brand-50: #f1f6ff;
+  --color-brand-100: #e3edff;
+  --color-brand-200: #c7dbff;
+  --color-brand-300: #9ec1ff;
+  --color-brand-400: #6b9fff;
+  --color-brand-500: #3b7ded;
+  --color-brand-600: #2563d9;
+  --color-brand-700: #1c4fb5;
+  --color-brand-800: #1a438f;
+  --color-brand-900: #173a76;
+  --color-brand-950: #0d2247;
 
-  --color-ink-50: #f8fafc;
-  --color-ink-100: #f1f5f9;
-  --color-ink-200: #e2e8f0;
-  --color-ink-300: #cbd5e1;
-  --color-ink-400: #94a3b8;
-  --color-ink-500: #64748b;
-  --color-ink-600: #475569;
-  --color-ink-700: #334155;
-  --color-ink-800: #1e293b;
-  --color-ink-900: #0f172a;
-  --color-ink-950: #020617;
+  --color-ink-50: #f8f8f7;
+  --color-ink-100: #f2f2f0;
+  --color-ink-200: #e5e5e2;
+  --color-ink-300: #d4d4d0;
+  --color-ink-400: #a3a39d;
+  --color-ink-500: #777771;
+  --color-ink-600: #5c5c56;
+  --color-ink-700: #454540;
+  --color-ink-800: #2b2b28;
+  --color-ink-900: #1c1c1a;
+  --color-ink-950: #111110;
 
-  --color-mint-100: #ccfbf1;
-  --color-mint-500: #14b8a6;
-  --color-mint-600: #0d9488;
+  --shadow-card: none;
+  --shadow-float: none;
+  --shadow-sidebar: none;
 
-  --shadow-card: 0 1px 2px rgb(15 23 42 / 0.04), 0 8px 24px -12px rgb(15 23 42 / 0.12);
-  --shadow-float: 0 24px 48px -20px rgb(15 23 42 / 0.28);
-  --shadow-sidebar: 0 20px 50px -24px rgb(2 6 23 / 0.5);
-
-  --animate-fade-in: fade-in 0.35s ease-out both;
-  --animate-slide-up: slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-fade-in: fade-in 0.28s ease-out both;
+  --animate-slide-up: slide-up 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
   --animate-shimmer: shimmer 1.6s linear infinite;
 
   @keyframes fade-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
   }
   @keyframes slide-up {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
   @keyframes shimmer {
-    from { background-position: 200% 0; }
-    to { background-position: -200% 0; }
+    from {
+      background-position: 200% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
   }
 }
 
 @layer base {
+  :root {
+    --radius: 0px;
+  }
+
   * {
     border-color: var(--color-ink-200);
+    border-radius: var(--radius) !important;
+    box-shadow: none !important;
   }
 
   html {
@@ -67,12 +91,8 @@
 
   body {
     min-height: 100vh;
-    background-color: var(--color-ink-50);
-    background-image:
-      radial-gradient(1100px 500px at 8% -12%, rgb(99 102 241 / 0.10), transparent 60%),
-      radial-gradient(900px 420px at 100% 0%, rgb(20 184 166 / 0.08), transparent 55%);
-    background-attachment: fixed;
-    color: var(--color-ink-800);
+    background-color: #fff;
+    color: var(--color-ink-900);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
@@ -83,8 +103,35 @@
   }
 
   :focus-visible {
-    outline: 2px solid var(--color-brand-500);
+    outline: 2px solid var(--color-brand-600);
     outline-offset: 2px;
+  }
+
+  thead {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+
+  thead th {
+    background-color: var(--color-ink-50);
+    color: var(--color-ink-600);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  [data-sonner-toast] {
+    border: 1px solid var(--color-ink-300) !important;
+    background: #fff !important;
+    color: var(--color-ink-900) !important;
+  }
+
+  [role="tooltip"] {
+    border: 1px solid var(--color-ink-300);
+    background: #fff;
+    color: var(--color-ink-900);
   }
 
   input[type="number"]::-webkit-inner-spin-button {
@@ -94,19 +141,19 @@
 
 @layer components {
   .card {
-    @apply rounded-2xl border border-ink-200/80 bg-white shadow-card;
+    @apply border border-ink-200 bg-white;
   }
 
   .input {
-    @apply w-full rounded-xl border border-ink-200 bg-white px-3.5 py-2.5 text-sm text-ink-900 shadow-sm outline-none transition placeholder:text-ink-400 hover:border-ink-300 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 disabled:cursor-not-allowed disabled:bg-ink-100 disabled:text-ink-500;
+    @apply w-full border border-ink-300 bg-white px-3.5 py-2.5 text-sm text-ink-900 outline-none transition placeholder:text-ink-400 hover:border-ink-500 focus:border-brand-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 disabled:cursor-not-allowed disabled:bg-ink-100 disabled:text-ink-600;
   }
 
   .label {
-    @apply mb-1.5 block text-sm font-medium text-ink-700;
+    @apply mb-1.5 block text-xs font-semibold tracking-wide text-ink-800;
   }
 
   .hint {
-    @apply mt-1.5 text-xs leading-relaxed text-ink-500;
+    @apply mt-1.5 text-xs leading-relaxed text-ink-600;
   }
 
   .field-error {
@@ -114,7 +161,7 @@
   }
 
   .skeleton {
-    @apply rounded-lg bg-gradient-to-r from-ink-100 via-ink-200/70 to-ink-100;
+    @apply bg-gradient-to-r from-ink-100 via-ink-200/70 to-ink-100;
     background-size: 200% 100%;
     animation: var(--animate-shimmer);
   }
@@ -130,13 +177,11 @@
   }
 
   .scroll-thin::-webkit-scrollbar-thumb {
-    border-radius: 999px;
     background: var(--color-ink-300);
   }
 
   .glass {
-    background: rgb(255 255 255 / 0.78);
-    backdrop-filter: blur(16px);
+    background: #fff;
   }
 }
 

@@ -1,13 +1,16 @@
 import logging
 
+from sqlalchemy import delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.modules.auth.repository import SessionRepository
+from app.modules.customers.models import CustomerManager
 from app.modules.users.models import Role, User
 from app.modules.users.repository import UserRepository
 from app.modules.users.schema import UserCreateRequest, UserUpdateRequest
 from app.utils.exceptions import AppException
+from app.utils.cache import invalidate_customer_mutation, invalidate_dashboard_for
 from app.utils.pagination import pagination_meta
 from app.utils.security import hash_password, normalize_email, validate_password
 
@@ -63,6 +66,7 @@ class UserService:
                     password_hash=hash_password(data.password),
                     role=data.role,
                     is_active=True,
+                    auto_assign_new_customers=False,
                 )
             )
         except IntegrityError:
@@ -103,8 +107,26 @@ class UserService:
             target.role = data.role
         if data.is_active is not None:
             target.is_active = data.is_active
+        if data.auto_assign_new_customers is not None:
+            if target.role == Role.ADMIN and data.auto_assign_new_customers:
+                raise AppException(
+                    "Auto-assign is available to managers only",
+                    status_code=400,
+                    error_code="INVALID_AUTO_ASSIGN_ROLE",
+                )
+            target.auto_assign_new_customers = data.auto_assign_new_customers
+
+        if target.role == Role.ADMIN:
+            target.auto_assign_new_customers = False
+            self.db.execute(
+                delete(CustomerManager).where(CustomerManager.manager_id == target.id)
+            )
 
         target = self.repo.save(target)
+        if changing_role:
+            invalidate_customer_mutation({target.id})
+        else:
+            invalidate_dashboard_for({target.id})
 
         if data.is_active is False:
             SessionRepository(self.db).revoke_all_for_user(target.id)

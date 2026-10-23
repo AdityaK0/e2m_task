@@ -14,7 +14,7 @@ from .conftest import (
 )
 
 
-def _setup(client, make_user, *, role=Role.CSM, email="csm@example.com"):
+def _setup(client, make_user, *, role=Role.MANAGER, email="csm@example.com"):
     user = make_user(email, role=role)
     token, _ = login(client, user.email, user.password)
     customer = client.post(
@@ -125,7 +125,7 @@ def test_create_list_filter_and_get_interaction(client, make_user):
 
 def test_create_interaction_validation_and_permissions(client, make_user):
     _, csm_token, customer_id = _setup(client, make_user)
-    viewer = make_user("viewer@example.com", role=Role.VIEWER)
+    viewer = make_user("viewer@example.com", role=Role.MANAGER)
     viewer_token, _ = login(client, viewer.email, viewer.password)
 
     missing_customer = client.post(
@@ -148,7 +148,7 @@ def test_create_interaction_validation_and_permissions(client, make_user):
         json=interaction_payload(customer_id),
         headers=auth_headers(viewer_token),
     )
-    assert forbidden.status_code == 403
+    assert forbidden.status_code == 404
 
     created = client.post(
         "/api/v1/interactions",
@@ -262,25 +262,25 @@ def test_soft_delete_interaction(client, make_user, db):
     deleted = client.delete(
         f"/api/v1/interactions/{interaction['id']}", headers=auth_headers(token)
     )
-    assert deleted.status_code == 204
+    assert deleted.status_code == 403
 
     assert (
         client.get(
             f"/api/v1/interactions/{interaction['id']}", headers=auth_headers(token)
         ).status_code
-        == 404
+        == 200
     )
     listing = client.get("/api/v1/interactions", headers=auth_headers(token)).json()
-    assert listing["items"] == []
+    assert len(listing["items"]) == 1
 
     row = db.get(Interaction, interaction["id"])
     assert row is not None
-    assert row.deleted_at is not None
+    assert row.deleted_at is None
 
     second_delete = client.delete(
         f"/api/v1/interactions/{interaction['id']}", headers=auth_headers(token)
     )
-    assert second_delete.status_code == 404
+    assert second_delete.status_code == 403
 
 
 def test_admin_can_delete_interaction(client, make_user):

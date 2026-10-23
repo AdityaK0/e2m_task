@@ -66,6 +66,19 @@ def invalidate_catalog() -> None:
     bump_version(DASHBOARD_VERSION_KEY)
 
 
+def invalidate_dashboard_for(manager_ids: set[int] | list[int] | tuple[int, ...] = ()) -> None:
+    """Invalidate shared admin stats and each manager affected by a mutation."""
+    delete("dashboard:admin")
+    for manager_id in set(manager_ids):
+        delete(f"dashboard:manager:{manager_id}")
+
+
+def invalidate_customer_mutation(manager_ids: set[int] | list[int] | tuple[int, ...] = ()) -> None:
+    """Invalidate customer lists and dashboard data after a committed mutation."""
+    bump_version(CUSTOMER_LIST_VERSION_KEY)
+    invalidate_dashboard_for(manager_ids)
+
+
 def get_json(key: str) -> Any | None:
     try:
         raw = _client.get(key)

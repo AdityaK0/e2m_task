@@ -1,5 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Northstar">
-  <rect width="64" height="64" rx="16" fill="#0f172a"/>
-  <path d="M32 10l4.8 15.2L52 30l-15.2 4.8L32 50l-4.8-15.2L12 30l15.2-4.8L32 10z" fill="#818cf8"/>
-  <circle cx="32" cy="30" r="4" fill="#eef2ff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="E2M Client Insights">
+  <rect width="64" height="64" rx="14" fill="#111110"/>
+  <rect x="14" y="16" width="28" height="6" rx="2" fill="#ffffff"/>
+  <rect x="14" y="29" width="18" height="6" rx="2" fill="#ffffff"/>
+  <rect x="14" y="42" width="28" height="6" rx="2" fill="#ffffff"/>
+  <rect x="45" y="16" width="6" height="6" rx="1.5" fill="#6b9fff"/>
 </svg>

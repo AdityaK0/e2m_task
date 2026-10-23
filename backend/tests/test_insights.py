@@ -19,7 +19,7 @@ from .conftest import (
 
 
 def _setup(client, make_user, *, notes="Adoption is strong. Send a proposal by Friday."):
-    csm = make_user("csm@example.com", role=Role.CSM, name="Dana")
+    csm = make_user("csm@example.com", role=Role.MANAGER, name="Dana")
     token, _ = login(client, csm.email, csm.password)
     customer = client.post(
         "/api/v1/customers",
@@ -93,15 +93,15 @@ def test_generate_get_and_idempotency(client, make_user, fake_provider, db):
 
 def test_insight_permissions_and_config(client, make_user):
     _, csm_token, interaction = _setup(client, make_user)
-    viewer = make_user("viewer@example.com", role=Role.VIEWER)
+    viewer = make_user("viewer@example.com", role=Role.MANAGER)
     viewer_token, _ = login(client, viewer.email, viewer.password)
 
     forbidden = client.post(
         f"/api/v1/interactions/{interaction['id']}/insights",
         headers=auth_headers(viewer_token),
     )
-    assert forbidden.status_code == 403
-    assert forbidden.json()["error_code"] == "FORBIDDEN"
+    assert forbidden.status_code == 404
+    assert forbidden.json()["error_code"] == "INTERACTION_NOT_FOUND"
 
     created = client.post(
         f"/api/v1/interactions/{interaction['id']}/insights",
@@ -113,7 +113,7 @@ def test_insight_permissions_and_config(client, make_user):
         f"/api/v1/interactions/{interaction['id']}/insights",
         headers=auth_headers(viewer_token),
     )
-    assert readable.status_code == 200
+    assert readable.status_code == 404
 
     config = client.get("/api/v1/insights/config", headers=auth_headers(viewer_token))
     assert config.status_code == 200

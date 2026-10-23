@@ -37,7 +37,11 @@ export function Providers({ children }: { children: ReactNode }) {
         richColors
         closeButton
         toastOptions={{
-          style: { borderRadius: "14px", fontFamily: "inherit" },
+          style: {
+            border: "1px solid var(--color-ink-300)",
+            fontFamily: "inherit",
+            boxShadow: "none",
+          },
         }}
       />
     </Provider>
