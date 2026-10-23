@@ -1,0 +1,104 @@
+name: northstar-cs
+
+x-backend-env: &backend-env
+  APP_NAME: Northstar Customer Success Platform
+  APP_ENV: development
+  DEBUG: "false"
+  API_V1_PREFIX: /api/v1
+  ALLOW_REGISTRATION: "${ALLOW_REGISTRATION:-true}"
+  DATABASE_URL: "postgresql+psycopg2://csm:${POSTGRES_PASSWORD:-csm_local_password}@db:5432/csm"
+  REDIS_URL: redis://redis:6379/0
+  JWT_SECRET_KEY: "${JWT_SECRET_KEY:-change-me-dev-only-4c1d5f9a8e2b7c3d6a0f1e9b8c7d5a4f3e2d1c0b9a8f7e6d5c4b3a291807f6e5}"
+  ACCESS_TOKEN_EXPIRE_MINUTES: "15"
+  REFRESH_TOKEN_EXPIRE_DAYS: "7"
+  CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:3000}"
+  COOKIE_SECURE: "${COOKIE_SECURE:-false}"
+  COOKIE_SAMESITE: "${COOKIE_SAMESITE:-lax}"
+  COOKIE_DOMAIN: "${COOKIE_DOMAIN:-}"
+  LOGIN_MAX_ATTEMPTS: "5"
+  LOGIN_WINDOW_SECONDS: "300"
+  AI_PROVIDER: openai
+  AI_API_KEY: "${AI_API_KEY:-}"
+  AI_MODEL: "${AI_MODEL:-gpt-4o-mini}"
+  AI_BASE_URL: "${AI_BASE_URL:-}"
+  AI_TIMEOUT_SECONDS: "30"
+  AI_MAX_RETRIES: "2"
+  BOOTSTRAP_ADMIN_EMAIL: "${BOOTSTRAP_ADMIN_EMAIL:-admin@example.com}"
+  BOOTSTRAP_ADMIN_PASSWORD: "${BOOTSTRAP_ADMIN_PASSWORD:-AdminPass123!}"
+  BOOTSTRAP_ADMIN_NAME: "${BOOTSTRAP_ADMIN_NAME:-Platform Admin}"
+  SEED_DEMO_DATA: "${SEED_DEMO_DATA:-true}"
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: csm
+      POSTGRES_USER: csm
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-csm_local_password}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U csm -d csm"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  backend:
+    image: northstar-cs-backend
+    build:
+      context: ./backend
+    environment:
+      <<: *backend-env
+      WEB_CONCURRENCY: "2"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    restart: unless-stopped
+
+  seed:
+    image: northstar-cs-backend
+    environment: *backend-env
+    entrypoint: ["python", "-m", "app.seed"]
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: "no"
+
+  frontend:
+    image: northstar-cs-frontend
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_BASE_URL: "${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000/api/v1}"
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:

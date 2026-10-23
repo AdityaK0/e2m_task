@@ -1,0 +1,42 @@
+# Environment files and local secrets
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+frontend/.env*
+!frontend/.env.example
+
+# Python
+backend/venv/
+backend/.venv/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/next-env.d.ts
+frontend/*.tsbuildinfo
+npm-debug.log*
+
+# Local databases and data
+*.db
+*.sqlite
+*.sqlite3
+
+# Tooling / editors
+.git/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Incidental artifacts
+backend_tree.txt
