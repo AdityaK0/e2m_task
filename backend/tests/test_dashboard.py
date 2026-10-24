@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
-from app.modules.insights.provider import AIProviderError
+from app.modules.insights.providers.base import LLMProviderError
+from app.modules.customers.models import Customer, CustomerManager, CustomerStatus
 from app.modules.users.models import Role
 
 from .conftest import (
@@ -11,13 +12,12 @@ from .conftest import (
 )
 
 
-def _create_customer(client, token, csm_id, *, name, status, health_score=None):
+def _create_customer(client, token, csm_id, *, name, status):
     response = client.post(
         "/api/v1/customers",
         json=customer_payload(
             name=name,
             status=status,
-            health_score=health_score,
             contact_email=f"{name.lower().replace(' ', '.')}@example.com",
         ),
         headers=auth_headers(token),
@@ -26,8 +26,8 @@ def _create_customer(client, token, csm_id, *, name, status, health_score=None):
     return response.json()
 
 
-def test_dashboard_aggregates_and_cache_invalidation(
-    client, make_user, fake_provider, fake_redis
+def test_dashboard_aggregates_and_reads_current_database_state(
+    client, make_user, fake_provider, db
 ):
     csm = make_user("csm@example.com", role=Role.MANAGER, name="Dana Okafor")
     viewer = make_user("viewer@example.com", role=Role.MANAGER)
@@ -36,20 +36,37 @@ def test_dashboard_aggregates_and_cache_invalidation(
     now = datetime.now(timezone.utc)
 
     active = _create_customer(
-        client, token, csm.id, name="Active Co", status="active", health_score=90
+        client, token, csm.id, name="Active Co", status="active"
     )
     at_risk = _create_customer(
-        client, token, csm.id, name="At Risk Co", status="at_risk", health_score=20
+        client, token, csm.id, name="At Risk Co", status="at_risk"
     )
     _create_customer(
-        client, token, csm.id, name="Prospect Co", status="prospect", health_score=None
+        client, token, csm.id, name="Prospect Co", status="prospect"
     )
     onboarding = _create_customer(
-        client, token, csm.id, name="Onboarding Co", status="onboarding", health_score=70
+        client, token, csm.id, name="Onboarding Co", status="onboarding"
     )
     _create_customer(
-        client, token, csm.id, name="Churned Co", status="churned", health_score=5
+        client, token, csm.id, name="Churned Co", status="churned"
     )
+    other_manager = make_user("other@example.com", role=Role.MANAGER)
+    other_customer = Customer(
+        name="Other manager customer",
+        status=CustomerStatus.ACTIVE,
+        health_score=15,
+        health_sample_size=1,
+    )
+    db.add(other_customer)
+    db.flush()
+    db.add(
+        CustomerManager(
+            customer_id=other_customer.id,
+            manager_id=other_manager.id,
+        )
+    )
+    db.commit()
+    other_token, _ = login(client, other_manager.email, other_manager.password)
 
     recent = client.post(
         "/api/v1/interactions",
@@ -80,7 +97,7 @@ def test_dashboard_aggregates_and_cache_invalidation(
     )
     assert completed.status_code == 200
 
-    fake_provider.error = AIProviderError("outage")
+    fake_provider.error = LLMProviderError("outage")
     failed = client.post(
         f"/api/v1/interactions/{older.json()['id']}/insights",
         headers=auth_headers(token),
@@ -96,6 +113,7 @@ def test_dashboard_aggregates_and_cache_invalidation(
     assert summary["total_customers"] == 5
     assert summary["active_customers"] == 1
     assert summary["at_risk_customers"] == 1
+    assert summary["average_health_score"] == 95.0
     assert summary["prospect_customers"] == 1
     assert summary["churned_customers"] == 1
     assert summary["total_interactions"] == 2
@@ -121,23 +139,32 @@ def test_dashboard_aggregates_and_cache_invalidation(
     assert summary["recent_interactions"][0]["title"] == "Recent review"
     assert summary["recent_interactions"][0]["has_insight"] is True
     assert summary["recent_interactions"][1]["has_insight"] is True
-    assert [item["id"] for item in summary["at_risk_list"]] == [
+    assert {item["id"] for item in summary["at_risk_list"]} == {
         at_risk["id"],
         onboarding["id"],
-    ]
-    assert summary["at_risk_list"][0]["assigned_manager"] == "Dana Okafor"
-
-    keys = [key for key in fake_redis.scan_iter("dashboard:manager:*")]
-    assert len(keys) == 1
-    assert 0 < fake_redis.ttl(keys[0]) <= 300
+    }
+    assert next(
+        item for item in summary["at_risk_list"] if item["id"] == at_risk["id"]
+    )["assigned_manager"] == "Dana Okafor"
 
     viewer_summary = client.get(
         "/api/v1/dashboard/summary", headers=auth_headers(viewer_token)
     )
     assert viewer_summary.status_code == 200
     assert viewer_summary.json()["total_customers"] == 0
+    assert viewer_summary.json()["average_health_score"] is None
+    other_summary = client.get(
+        "/api/v1/dashboard/summary", headers=auth_headers(other_token)
+    ).json()
+    assert other_summary["average_health_score"] == 15.0
+    admin = make_user("admin@example.com", role=Role.ADMIN)
+    admin_token, _ = login(client, admin.email, admin.password)
+    admin_summary = client.get(
+        "/api/v1/dashboard/summary", headers=auth_headers(admin_token)
+    ).json()
+    assert admin_summary["average_health_score"] == 55.0
 
-    # A customer mutation bumps the dashboard generation, so stale cache is not used.
+    # Dashboard aggregates reflect committed changes on each request.
     updated = client.patch(
         f"/api/v1/customers/{active['id']}",
         json={"status": "churned"},

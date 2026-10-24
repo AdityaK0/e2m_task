@@ -27,14 +27,6 @@ const schema = z.object({
   name: z.string().trim().min(1, "Customer name is required").max(200),
   company: z.string().max(200),
   status: z.enum(["prospect", "onboarding", "active", "at_risk", "churned"]),
-  health_score: z
-    .string()
-    .refine(
-      (value) =>
-        value === "" ||
-        (/^\d+$/.test(value) && Number(value) >= 0 && Number(value) <= 100),
-      "Health score must be a whole number between 0 and 100",
-    ),
   manager_ids: z.array(z.string()),
   contact_name: z.string().max(160),
   contact_email: z
@@ -62,10 +54,6 @@ function toDefaults(customer?: Customer | null): FormValues {
     name: customer?.name ?? "",
     company: customer?.company ?? "",
     status: customer?.status ?? "prospect",
-    health_score:
-      customer?.health_score === null || customer?.health_score === undefined
-        ? ""
-        : String(customer.health_score),
     manager_ids: customer?.assigned_managers.map((manager) => String(manager.id)) ?? [],
     contact_name: customer?.contact_name ?? "",
     contact_email: customer?.contact_email ?? "",
@@ -108,7 +96,7 @@ export function CustomerForm({
   useEffect(() => {
     if (!isAdmin) return;
     usersApi
-      .options()
+      .managerOptions()
       .then(setManagers)
       .catch((error) => toast.error(getApiError(error)));
   }, [isAdmin]);
@@ -124,8 +112,6 @@ export function CustomerForm({
       industry: nullable(values.industry),
       website: nullable(values.website),
       status: values.status as CustomerStatus,
-      health_score:
-        values.health_score === "" ? null : Number(values.health_score),
       manager_ids:
         mode === "create" && isAdmin && assignManagersNow
           ? values.manager_ids.map(Number)
@@ -211,25 +197,6 @@ export function CustomerForm({
             </Select>
           </Field>
 
-          <Field
-            label="Health score"
-            htmlFor="health_score"
-            error={errors.health_score?.message}
-            hint="0–100. Leave blank if not assessed."
-          >
-            <Input
-              id="health_score"
-              type="number"
-              min={0}
-              max={100}
-              step={1}
-              inputMode="numeric"
-              placeholder="e.g. 75"
-              invalid={Boolean(errors.health_score)}
-              {...register("health_score")}
-            />
-          </Field>
-
           {isAdmin && mode === "create" ? (
             <div className="space-y-3 sm:col-span-2">
               <label className="flex items-center gap-2 text-sm text-ink-700">
@@ -247,10 +214,9 @@ export function CustomerForm({
                   htmlFor="manager_ids"
                   hint="Select zero or more active managers. You can also assign managers after creating the customer."
                 >
-                  <select
+                  <Select
                     id="manager_ids"
                     multiple
-                    className="min-h-28 w-full border border-ink-200 bg-white p-2 text-sm"
                     {...register("manager_ids")}
                   >
                     {managers.map((manager) => (
@@ -258,7 +224,7 @@ export function CustomerForm({
                         {manager.name}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </Field>
               ) : (
                 <p className="hint">

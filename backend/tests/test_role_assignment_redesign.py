@@ -186,25 +186,17 @@ def test_manager_cannot_manage_assignments_and_admin_role_change_clears_rows(
     ).status_code == 409
 
 
-def test_dashboard_cache_scope_and_immediate_customer_invalidation(
-    client, make_user, fake_redis
-):
+def test_dashboard_reads_current_assignment_and_customer_state(client, make_user):
     manager = make_user("manager@example.com", role=Role.MANAGER)
     admin = make_user("admin@example.com", role=Role.ADMIN)
     manager_token = _token(client, manager)
     admin_token = _token(client, admin)
-    client.get("/api/v1/dashboard/summary", headers=auth_headers(manager_token))
-    client.get("/api/v1/dashboard/summary", headers=auth_headers(admin_token))
-    assert fake_redis.exists(f"dashboard:manager:{manager.id}")
-    assert fake_redis.exists("dashboard:admin")
-
     created = client.post(
         "/api/v1/customers",
         json=customer_payload(name="Fresh dashboard customer"),
         headers=auth_headers(manager_token),
     )
     assert created.status_code == 201
-    assert not fake_redis.exists(f"dashboard:manager:{manager.id}")
     refreshed = client.get(
         "/api/v1/dashboard/summary", headers=auth_headers(manager_token)
     )
@@ -216,20 +208,16 @@ def test_dashboard_cache_scope_and_immediate_customer_invalidation(
     assert client.delete(
         f"/api/v1/customers/{created.json()['id']}", headers=auth_headers(admin_token)
     ).status_code == 204
-    assert not fake_redis.exists("dashboard:admin")
     assert client.get(
         "/api/v1/dashboard/summary", headers=auth_headers(admin_token)
     ).json()["total_customers"] == 0
-    assert not fake_redis.exists(f"dashboard:manager:{manager.id}")
 
     unassigned = client.post(
         "/api/v1/customers",
-        json=customer_payload(name="Assignment cache customer"),
+        json=customer_payload(name="Assignment dashboard customer"),
         headers=auth_headers(admin_token),
     )
     customer_id = unassigned.json()["id"]
-    client.get("/api/v1/dashboard/summary", headers=auth_headers(manager_token))
-    client.get("/api/v1/dashboard/summary", headers=auth_headers(admin_token))
     assignment_path = "/api/v1/customers/assignments"
 
     assigned = client.post(
@@ -238,8 +226,6 @@ def test_dashboard_cache_scope_and_immediate_customer_invalidation(
         headers=auth_headers(admin_token),
     )
     assert assigned.json()["assigned"] == 1
-    assert not fake_redis.exists(f"dashboard:manager:{manager.id}")
-    assert not fake_redis.exists("dashboard:admin")
     assert client.get(
         "/api/v1/dashboard/summary", headers=auth_headers(manager_token)
     ).json()["total_customers"] == 1
@@ -251,7 +237,6 @@ def test_dashboard_cache_scope_and_immediate_customer_invalidation(
         headers=auth_headers(admin_token),
     )
     assert unassigned_result.json()["unassigned"] == 1
-    assert not fake_redis.exists(f"dashboard:manager:{manager.id}")
     assert client.get(
         "/api/v1/dashboard/summary", headers=auth_headers(manager_token)
     ).json()["total_customers"] == 0

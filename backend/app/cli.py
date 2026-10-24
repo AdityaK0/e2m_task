@@ -5,7 +5,7 @@ from pydantic import EmailStr, TypeAdapter, ValidationError
 
 from app.config import settings
 from app.database import SessionLocal
-from app.seed import create_admin, create_demo_seed
+from app.seed import create_admin
 from app.utils.exceptions import AppException
 
 
@@ -14,7 +14,7 @@ email_adapter = TypeAdapter(EmailStr)
 
 @click.group()
 def cli() -> None:
-    """E2M Client Insights administration commands."""
+    """E2M Insights administration commands."""
 
 
 @cli.command("createadmin")
@@ -43,17 +43,6 @@ def createadmin() -> None:
         db.close()
 
     click.echo(f"Created admin account: {user.email}")
-
-
-@cli.command("create-seed")
-def create_seed() -> None:
-    """Create the demo users, customers, and interactions in app.seed."""
-    db = SessionLocal()
-    try:
-        create_demo_seed(db)
-    finally:
-        db.close()
-    click.echo("Seed data is ready.")
 
 
 def main() -> None:

@@ -34,7 +34,7 @@ export function Logo({
     <Link
       href={href}
       className={cn("inline-flex items-center gap-2.5", className)}
-      aria-label="E2M Client Insights"
+      aria-label="E2M Insights"
     >
       <LogoMark />
       {!compact ? (

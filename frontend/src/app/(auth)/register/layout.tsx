@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-export const metadata: Metadata = { title: "Create account" };
+export const metadata: Metadata = { title: "Sign in" };
 
 export default function RegisterLayout({
   children,

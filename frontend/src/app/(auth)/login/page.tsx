@@ -2,7 +2,6 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowRight, Lock, Mail } from "lucide-react";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -55,7 +54,7 @@ function LoginForm() {
 
   useEffect(() => {
     if (initialized && user && status === "authenticated") {
-      router.replace(next);
+      router.replace(user.must_change_password ? "/change-password" : next);
     }
   }, [initialized, user, status, next, router]);
 
@@ -64,7 +63,9 @@ function LoginForm() {
     const result = await dispatch(login(values));
     if (login.fulfilled.match(result)) {
       toast.success("Welcome back");
-      router.replace(next);
+      router.replace(
+        result.payload.user.must_change_password ? "/change-password" : next,
+      );
       router.refresh();
     } else if (login.rejected.match(result)) {
       const message = result.payload ?? "Unable to sign in";
@@ -82,7 +83,7 @@ function LoginForm() {
           Welcome back
         </h1>
         <p className="mt-2 text-sm leading-6 text-ink-500">
-          Sign in to E2M Client Insights.
+          Sign in to E2M Insights.
         </p>
       </div>
 
@@ -136,15 +137,6 @@ function LoginForm() {
         </Button>
       </form>
 
-      <div className="mt-8 border-t border-ink-100 pt-5 text-center text-xs text-ink-500">
-        New to the workspace?{" "}
-        <Link
-          href="/register"
-          className="font-medium text-ink-900 underline decoration-ink-300 underline-offset-4 transition hover:decoration-ink-900"
-        >
-          Create an account
-        </Link>
-      </div>
     </div>
   );
 }

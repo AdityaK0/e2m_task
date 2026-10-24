@@ -2,8 +2,8 @@
 
 import {
   Eye,
-  KeyRound,
   Pencil,
+  Power,
   Plus,
   RotateCcw,
   Search,
@@ -20,6 +20,7 @@ import { AccessDenied } from "@/components/access-denied";
 import {
   CreateUserDialog,
   EditUserDialog,
+  UserCredentialsDialog,
 } from "@/components/admin/user-form-dialog";
 import { Alert } from "@/components/ui/alert";
 import { Dialog } from "@/components/ui/dialog";
@@ -43,7 +44,13 @@ import { useDebounce } from "@/hooks/use-debounce";
 import { useQueryState } from "@/hooks/use-query-state";
 import { getApiError } from "@/lib/api/errors";
 import { customersApi } from "@/lib/api/customers";
-import type { Customer, Paginated, Role, User } from "@/lib/api/types";
+import type {
+  Customer,
+  Paginated,
+  Role,
+  User,
+  UserCredentials,
+} from "@/lib/api/types";
 import { usersApi } from "@/lib/api/users";
 import { ROLE_LABELS } from "@/lib/permissions";
 import { formatDate, formatRelative } from "@/lib/utils";
@@ -76,14 +83,18 @@ function UsersContent() {
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [createOpen, setCreateOpen] = useState(false);
+  const [credentials, setCredentials] = useState<UserCredentials | null>(null);
   const [editing, setEditing] = useState<User | null>(null);
-  const [revokeTarget, setRevokeTarget] = useState<User | null>(null);
-  const [revoking, setRevoking] = useState(false);
+  const [activeTarget, setActiveTarget] = useState<User | null>(null);
+  const [activeUpdating, setActiveUpdating] = useState(false);
+  const [resetTarget, setResetTarget] = useState<User | null>(null);
+  const [resetting, setResetting] = useState(false);
   const [assignmentTarget, setAssignmentTarget] = useState<User | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customersLoading, setCustomersLoading] = useState(false);
+  const [customersError, setCustomersError] = useState<string | null>(null);
   const [assignmentSearch, setAssignmentSearch] = useState("");
   const [selectedCustomerIds, setSelectedCustomerIds] = useState<number[]>([]);
-  const [assignAll, setAssignAll] = useState(false);
   const [unassignMode, setUnassignMode] = useState(false);
   const [alsoAutoAssign, setAlsoAutoAssign] = useState(false);
   const [assignmentLoading, setAssignmentLoading] = useState(false);
@@ -129,31 +140,73 @@ function UsersContent() {
   }
 
   const hasFilters = Boolean(debouncedSearch || roleParam || activeRaw);
+  const matchingCustomers = customers.filter((customer) =>
+    customer.name.toLowerCase().includes(assignmentSearch.trim().toLowerCase()),
+  );
+  const assignmentCandidates = matchingCustomers.filter((customer) => {
+    const isAssigned = customer.assigned_managers.some(
+      (manager) => manager.id === assignmentTarget?.id,
+    );
+    return unassignMode ? isAssigned : true;
+  });
+  const selectableCustomerIds = assignmentCandidates
+    .filter((customer) => {
+      const isAssigned = customer.assigned_managers.some(
+        (manager) => manager.id === assignmentTarget?.id,
+      );
+      return unassignMode ? isAssigned : !isAssigned;
+    })
+    .map((customer) => customer.id);
+  const allSelectableCustomersSelected =
+    selectableCustomerIds.length > 0 &&
+    selectableCustomerIds.every((id) => selectedCustomerIds.includes(id));
   const resetFilters = () => {
     setSearch("");
     setParams({ search: null, role: null, active: null, page: null });
   };
 
-  const handleRevoke = async () => {
-    if (!revokeTarget) return;
-    setRevoking(true);
+  const handleActiveChange = async () => {
+    if (!activeTarget) return;
+    setActiveUpdating(true);
     try {
-      const result = await usersApi.revokeSessions(revokeTarget.id);
-      toast.success(result.message);
-      setRevokeTarget(null);
+      if (activeTarget.is_active) {
+        await usersApi.deactivate(activeTarget.id);
+      } else {
+        await usersApi.reactivate(activeTarget.id);
+      }
+      toast.success(activeTarget.is_active ? "User deactivated" : "User reactivated");
+      setActiveTarget(null);
       setReloadKey((value) => value + 1);
     } catch (err) {
       toast.error(getApiError(err));
     } finally {
-      setRevoking(false);
+      setActiveUpdating(false);
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (!resetTarget) return;
+    setResetting(true);
+    try {
+      const result = await usersApi.resetPassword(resetTarget.id);
+      setCredentials(result);
+      toast.success("Password reset");
+      setResetTarget(null);
+      setReloadKey((value) => value + 1);
+    } catch (err) {
+      toast.error(getApiError(err));
+    } finally {
+      setResetting(false);
     }
   };
 
   const openAssignments = async (user: User) => {
     setAssignmentTarget(user);
+    setCustomers([]);
+    setCustomersError(null);
+    setCustomersLoading(true);
     setAlsoAutoAssign(user.auto_assign_new_customers);
     setSelectedCustomerIds([]);
-    setAssignAll(false);
     setUnassignMode(false);
     setAssignmentSearch("");
     try {
@@ -171,48 +224,89 @@ function UsersContent() {
       } while (pageNumber <= pages);
       setCustomers(allCustomers);
     } catch (error) {
-      toast.error(getApiError(error));
+      const message = getApiError(error);
+      setCustomersError(message);
+      toast.error(`Could not load customers: ${message}`);
+    } finally {
+      setCustomersLoading(false);
     }
   };
 
   const saveAssignments = async () => {
     if (!assignmentTarget) return;
+    const assignmentRequested = selectedCustomerIds.length > 0;
+    const autoAssignChanged =
+      alsoAutoAssign !== assignmentTarget.auto_assign_new_customers;
+    if (
+      assignmentLoading ||
+      customersLoading ||
+      customersError ||
+      (!assignmentRequested && !autoAssignChanged)
+    ) {
+      return;
+    }
+
     setAssignmentLoading(true);
+    let autoAssignSaved = false;
+    let assignmentChanged: number | null = null;
+    let skipped = 0;
     try {
-      let changed = 0;
-      let skipped = 0;
-      if (assignAll || selectedCustomerIds.length > 0) {
+      if (autoAssignChanged) {
+        await usersApi.update(assignmentTarget.id, {
+          auto_assign_new_customers: alsoAutoAssign,
+        });
+        autoAssignSaved = true;
+      }
+
+      if (assignmentRequested) {
         const payload = {
           manager_id: assignmentTarget.id,
-          ...(assignAll
-            ? { all: true as const }
-            : { customer_ids: selectedCustomerIds }),
+          customer_ids: selectedCustomerIds,
         };
         if (unassignMode) {
           const { result } = await dispatch(
             bulkUnassignCustomers(payload),
           ).unwrap();
-          changed = result.unassigned;
+          assignmentChanged = result.unassigned;
           skipped = result.skipped;
         } else {
           const { result } = await dispatch(
             bulkAssignCustomers(payload),
           ).unwrap();
-          changed = result.assigned;
+          assignmentChanged = result.assigned;
           skipped = result.skipped;
         }
+        if (assignmentChanged + skipped !== selectedCustomerIds.length) {
+          throw new Error(
+            "The server returned inconsistent assignment counts. Please reload and try again.",
+          );
+        }
       }
-      await usersApi.update(assignmentTarget.id, {
-        auto_assign_new_customers: alsoAutoAssign,
-      });
-      toast.success(
-        `${changed} clients ${unassignMode ? "unassigned" : "assigned"}; ${skipped} skipped`,
-      );
+
+      const messages = [];
+      if (assignmentChanged !== null) {
+        messages.push(
+          `${assignmentChanged} client(s) ${unassignMode ? "unassigned" : "assigned"}; ${skipped} ${
+            unassignMode ? "were not assigned" : "were already assigned"
+          }`,
+        );
+      }
+      if (autoAssignSaved) {
+        messages.push("Future customer auto-assignment updated");
+      }
+      toast.success(messages.join(". "));
       setAssignmentTarget(null);
     } catch (error) {
-      toast.error(getApiError(error));
+      const message = getApiError(error);
+      toast.error(
+        autoAssignSaved
+          ? `Future auto-assignment was updated, but client assignments failed: ${message}`
+          : message,
+      );
     } finally {
-      setReloadKey((value) => value + 1);
+      if (autoAssignSaved || assignmentChanged !== null) {
+        setReloadKey((value) => value + 1);
+      }
       setAssignmentLoading(false);
     }
   };
@@ -225,7 +319,7 @@ function UsersContent() {
         description="Manage people, roles, and account access. Roles control what each person can do."
         actions={
           <Button onClick={() => setCreateOpen(true)} leftIcon={<Plus className="size-4" />}>
-            Add user
+            Create user
           </Button>
         }
       />
@@ -347,7 +441,7 @@ function UsersContent() {
                 </Button>
               ) : (
                 <Button onClick={() => setCreateOpen(true)} leftIcon={<Plus className="size-4" />}>
-                  Add user
+                  Create user
                 </Button>
               )
             }
@@ -360,7 +454,6 @@ function UsersContent() {
                   <tr className="border-b border-ink-100 bg-[#fbfbfa] text-[10px] font-medium tracking-[0.1em] text-ink-400 uppercase">
                     <th className="px-5 py-3 font-medium">User</th>
                     <th className="px-4 py-3 font-medium">Role</th>
-                    <th className="px-4 py-3 font-medium">Auto-assign</th>
                     <th className="px-4 py-3 font-medium">Status</th>
                     <th className="px-4 py-3 font-medium">Last login</th>
                     <th className="px-4 py-3 font-medium">Joined</th>
@@ -390,27 +483,6 @@ function UsersContent() {
                         </td>
                         <td className="px-4 py-3.5">
                           <RoleBadge role={user.role} />
-                        </td>
-                        <td className="px-4 py-3.5">
-                          {user.role === "manager" ? (
-                            <input
-                              type="checkbox"
-                              aria-label={`Auto-assign new customers for ${user.name}`}
-                              title="Automatically assign future customers to this manager"
-                              checked={user.auto_assign_new_customers}
-                              onChange={async (event) => {
-                                try {
-                                  await usersApi.update(user.id, {
-                                    auto_assign_new_customers: event.target.checked,
-                                  });
-                                  toast.success("Auto-assign preference updated");
-                                  setReloadKey((value) => value + 1);
-                                } catch (error) {
-                                  toast.error(getApiError(error));
-                                }
-                              }}
-                            />
-                          ) : <span className="text-xs text-ink-400">—</span>}
                         </td>
                         <td className="px-4 py-3.5">
                           <Badge tone={user.is_active ? "success" : "neutral"} dot>
@@ -450,15 +522,28 @@ function UsersContent() {
                             >
                               <Pencil className="size-4" />
                             </button>
-                            {!isSelf && user.is_active ? (
+                            <button
+                              type="button"
+                              onClick={() => setResetTarget(user)}
+                              className=" p-1.5 text-ink-400 transition-colors hover:bg-ink-100 hover:text-amber-600"
+                              aria-label={`Reset password for ${user.name}`}
+                              title="Reset password"
+                            >
+                              <RotateCcw className="size-4" />
+                            </button>
+                            {!isSelf ? (
                               <button
                                 type="button"
-                                onClick={() => setRevokeTarget(user)}
-                                className=" p-1.5 text-ink-400 transition-colors hover:bg-ink-100 hover:text-amber-600"
-                                aria-label={`Revoke sessions for ${user.name}`}
-                                title="Revoke all sessions"
+                                onClick={() => setActiveTarget(user)}
+                                className={`p-1.5 transition-colors hover:bg-ink-100 ${
+                                  user.is_active
+                                    ? "text-ink-400 hover:text-rose-600"
+                                    : "text-ink-400 hover:text-emerald-600"
+                                }`}
+                                aria-label={`${user.is_active ? "Deactivate" : "Reactivate"} ${user.name}`}
+                                title={user.is_active ? "Deactivate user" : "Reactivate user"}
                               >
-                                <KeyRound className="size-4" />
+                                <Power className="size-4" />
                               </button>
                             ) : null}
                           </div>
@@ -487,6 +572,12 @@ function UsersContent() {
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         onSaved={() => setReloadKey((value) => value + 1)}
+        onCreated={setCredentials}
+      />
+
+      <UserCredentialsDialog
+        credentials={credentials}
+        onClose={() => setCredentials(null)}
       />
 
       <EditUserDialog
@@ -497,26 +588,50 @@ function UsersContent() {
       />
 
       <ConfirmDialog
-        open={Boolean(revokeTarget)}
-        title={`Revoke sessions for ${revokeTarget?.name ?? "this user"}?`}
-        description="All of their refresh sessions will be invalidated immediately."
-        confirmLabel="Revoke sessions"
+        open={Boolean(activeTarget)}
+        title={`${activeTarget?.is_active ? "Deactivate" : "Reactivate"} ${activeTarget?.name ?? "this user"}?`}
+        description={
+          activeTarget?.is_active
+            ? "They will lose access immediately."
+            : "They will be able to sign in again with their existing password."
+        }
+        confirmLabel={activeTarget?.is_active ? "Deactivate user" : "Reactivate user"}
+        destructive={Boolean(activeTarget?.is_active)}
+        isLoading={activeUpdating}
+        onConfirm={handleActiveChange}
+        onClose={() => setActiveTarget(null)}
+      />
+
+      <ConfirmDialog
+        open={Boolean(resetTarget)}
+        title={`Reset password for ${resetTarget?.name ?? "this user"}?`}
+        description="A new temporary password will be generated and shown once. They must change it at next sign-in."
+        confirmLabel="Reset password"
         destructive
-        isLoading={revoking}
-        onConfirm={handleRevoke}
-        onClose={() => setRevokeTarget(null)}
+        isLoading={resetting}
+        onConfirm={handleResetPassword}
+        onClose={() => setResetTarget(null)}
       />
 
       <Dialog
         open={Boolean(assignmentTarget)}
         onClose={() => setAssignmentTarget(null)}
         title={`${unassignMode ? "Unassign clients from" : "Assign clients to"} ${assignmentTarget?.name ?? "manager"}`}
-        description="Choose specific customers or all non-deleted customers."
+        description="See each customer's current assignment and choose customers to assign or unassign."
         dismissible={!assignmentLoading}
         footer={
           <>
             <Button variant="secondary" onClick={() => setAssignmentTarget(null)}>Cancel</Button>
-            <Button onClick={() => void saveAssignments()} isLoading={assignmentLoading}>
+            <Button
+              onClick={() => void saveAssignments()}
+              isLoading={assignmentLoading}
+              disabled={
+                customersLoading ||
+                Boolean(customersError) ||
+                (selectedCustomerIds.length === 0 &&
+                  alsoAutoAssign === assignmentTarget?.auto_assign_new_customers)
+              }
+            >
               Confirm {unassignMode ? "unassign" : "assignment"}
             </Button>
           </>
@@ -524,8 +639,26 @@ function UsersContent() {
       >
         <div className="space-y-3">
           <div className="flex gap-2">
-            <Button size="sm" variant={unassignMode ? "secondary" : "primary"} onClick={() => setUnassignMode(false)}>Assign</Button>
-            <Button size="sm" variant={unassignMode ? "primary" : "secondary"} onClick={() => setUnassignMode(true)}>Unassign</Button>
+            <Button
+              size="sm"
+              variant={unassignMode ? "secondary" : "primary"}
+              onClick={() => {
+                setUnassignMode(false);
+                setSelectedCustomerIds([]);
+              }}
+            >
+              Assign
+            </Button>
+            <Button
+              size="sm"
+              variant={unassignMode ? "primary" : "secondary"}
+              onClick={() => {
+                setUnassignMode(true);
+                setSelectedCustomerIds([]);
+              }}
+            >
+              Unassign
+            </Button>
           </div>
           <Input
             value={assignmentSearch}
@@ -534,31 +667,86 @@ function UsersContent() {
             aria-label="Search customers to assign"
           />
           <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={assignAll} onChange={(event) => setAssignAll(event.target.checked)} />
-            Select all customers
+            <input
+              type="checkbox"
+              checked={allSelectableCustomersSelected}
+              disabled={
+                customersLoading ||
+                Boolean(customersError) ||
+                selectableCustomerIds.length === 0
+              }
+              onChange={(event) =>
+                setSelectedCustomerIds((ids) =>
+                  event.target.checked
+                    ? [...new Set([...ids, ...selectableCustomerIds])]
+                    : ids.filter((id) => !selectableCustomerIds.includes(id)),
+                )
+              }
+            />
+            Select all {unassignMode ? "assigned" : "unassigned"} customers
           </label>
-          {!assignAll ? (
-            <div className="max-h-48 space-y-2 overflow-auto  border p-3">
-              {customers.filter((customer) => customer.name.toLowerCase().includes(assignmentSearch.toLowerCase())).map((customer) => (
-                <label key={customer.id} className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={selectedCustomerIds.includes(customer.id)}
-                    onChange={(event) => setSelectedCustomerIds((ids) =>
-                      event.target.checked ? [...ids, customer.id] : ids.filter((id) => id !== customer.id)
-                    )}
-                  />
-                  {customer.name}
-                </label>
-              ))}
-            </div>
-          ) : null}
+          <p className="text-xs text-ink-500">
+            {selectedCustomerIds.length} customer(s) selected
+          </p>
+          <div className="max-h-56 space-y-2 overflow-auto border p-3">
+            {customersLoading ? (
+              <p className="text-sm text-ink-500">Loading customers…</p>
+            ) : customersError ? (
+              <div className="space-y-2">
+                <p className="text-sm text-rose-600">{customersError}</p>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => assignmentTarget && void openAssignments(assignmentTarget)}
+                >
+                  Retry
+                </Button>
+              </div>
+            ) : assignmentCandidates.length === 0 ? (
+              <p className="text-sm text-ink-500">No customers found.</p>
+            ) : (
+              assignmentCandidates.map((customer) => {
+                const isAssigned = customer.assigned_managers.some(
+                  (manager) => manager.id === assignmentTarget?.id,
+                );
+                const canChangeAssignment = unassignMode || !isAssigned;
+                return (
+                  <label
+                    key={customer.id}
+                    className="flex items-center justify-between gap-3 text-sm"
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={
+                          (!unassignMode && isAssigned) ||
+                          selectedCustomerIds.includes(customer.id)
+                        }
+                        disabled={!canChangeAssignment || assignmentLoading}
+                        onChange={(event) =>
+                          setSelectedCustomerIds((ids) =>
+                            event.target.checked
+                              ? [...new Set([...ids, customer.id])]
+                              : ids.filter((id) => id !== customer.id),
+                          )
+                        }
+                      />
+                      <span className="truncate">{customer.name}</span>
+                    </span>
+                    <Badge tone={isAssigned ? "success" : "neutral"}>
+                      {isAssigned ? "Assigned" : "Not assigned"}
+                    </Badge>
+                  </label>
+                );
+              })
+            )}
+          </div>
           <label className="flex items-center gap-2 text-sm" title="Automatically assign future customers to this manager">
             <input type="checkbox" checked={alsoAutoAssign} onChange={(event) => setAlsoAutoAssign(event.target.checked)} />
             Also keep assigning new customers
           </label>
           <p className="text-xs text-ink-500">
-            Confirm {assignAll ? "all non-deleted customers" : `${selectedCustomerIds.length} selected customer(s)`}.
+            {selectedCustomerIds.length} customer(s) selected.
           </p>
         </div>
       </Dialog>

@@ -124,8 +124,6 @@
 
   [data-sonner-toast] {
     border: 1px solid var(--color-ink-300) !important;
-    background: #fff !important;
-    color: var(--color-ink-900) !important;
   }
 
   [role="tooltip"] {
@@ -136,6 +134,17 @@
 
   input[type="number"]::-webkit-inner-spin-button {
     opacity: 0.4;
+  }
+
+  select option {
+    background-color: #fff;
+    color: var(--color-ink-900);
+  }
+
+  select option:hover,
+  select option:focus {
+    background-color: #000;
+    color: #fff;
   }
 }
 

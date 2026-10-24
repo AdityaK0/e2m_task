@@ -21,6 +21,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { CustomerStatusBadge } from "@/components/ui/status-badges";
 import { useAuth } from "@/features/auth/hooks";
 import { dashboardApi } from "@/lib/api/dashboard";
+import { preferencesApi } from "@/lib/api/preferences";
 import type { DashboardSummary } from "@/lib/api/types";
 import { CUSTOMER_STATUS_LABELS } from "@/lib/labels";
 import { formatDateTime, formatRelative } from "@/lib/utils";
@@ -94,6 +95,7 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const [data, setData] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [healthWindow, setHealthWindow] = useState(5);
 
   useEffect(() => {
     dashboardApi
@@ -104,6 +106,16 @@ export default function DashboardPage() {
         console.error(error);
       })
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    preferencesApi.list().then((preferences) => {
+      const setting = preferences.find((preference) => preference.key === "health_score_window");
+      if (setting) setHealthWindow(setting.value);
+    }).catch((error) => {
+      toast.error("Failed to load health score settings");
+      console.error(error);
+    });
   }, []);
 
   const statusTotal = data
@@ -177,7 +189,9 @@ export default function DashboardPage() {
             <Metric
               label="At risk"
               value={data.at_risk_customers}
-              hint="Needs attention"
+              hint={data.average_health_score === null
+                ? "No health scores yet"
+                : `Average health ${data.average_health_score} · based on last ${healthWindow} insights`}
               href="/customers?status=at_risk"
             />
             <Metric
@@ -238,7 +252,7 @@ export default function DashboardPage() {
                         <div className="flex items-center gap-4">
                           {item.health_score != null ? (
                             <span className="hidden text-[11px] text-ink-500 sm:inline">
-                              Health {item.health_score}
+                              Health {item.health_score} · based on {item.health_sample_size} of last {healthWindow} insights
                             </span>
                           ) : null}
                           <CustomerStatusBadge status={item.status} />

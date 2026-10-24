@@ -1,6 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
+import { Clipboard, Eye, EyeOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -10,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/field";
 import { getApiError } from "@/lib/api/errors";
-import type { Role, User } from "@/lib/api/types";
+import type { Role, User, UserCredentials } from "@/lib/api/types";
 import { usersApi } from "@/lib/api/users";
 import { ROLE_LABELS } from "@/lib/permissions";
 
@@ -22,8 +23,12 @@ const ROLE_OPTIONS: Array<{ value: Role; label: string }> = [
 const createSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(120),
   email: z.string().email("Enter a valid email address"),
-  password: z.string().min(8, "At least 8 characters").max(72),
+  password: z
+    .string()
+    .max(72)
+    .refine((password) => !password || password.length >= 8, "At least 8 characters"),
   role: z.enum(["admin", "manager"]),
+  auto_assign_new_customers: z.boolean(),
 });
 
 type CreateValues = z.infer<typeof createSchema>;
@@ -31,7 +36,6 @@ type CreateValues = z.infer<typeof createSchema>;
 const editSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(120),
   role: z.enum(["admin", "manager"]),
-  active: z.enum(["true", "false"]),
 });
 
 type EditValues = z.infer<typeof editSchema>;
@@ -40,25 +44,41 @@ export function CreateUserDialog({
   open,
   onClose,
   onSaved,
+  onCreated,
 }: {
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
+  onCreated: (credentials: UserCredentials) => void;
 }) {
   const [serverError, setServerError] = useState<string | null>(null);
   const {
     register,
     handleSubmit,
     reset,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<CreateValues>({
     resolver: zodResolver(createSchema),
-    defaultValues: { name: "", email: "", password: "", role: "manager" },
+    defaultValues: {
+      name: "",
+      email: "",
+      password: "",
+      role: "manager",
+      auto_assign_new_customers: false,
+    },
   });
+  const role = watch("role");
 
   useEffect(() => {
     if (open) {
-      reset({ name: "", email: "", password: "", role: "manager" });
+      reset({
+        name: "",
+        email: "",
+        password: "",
+        role: "manager",
+        auto_assign_new_customers: false,
+      });
       setServerError(null);
     }
   }, [open, reset]);
@@ -66,9 +86,22 @@ export function CreateUserDialog({
   const onSubmit = async (values: CreateValues) => {
     setServerError(null);
     try {
-      await usersApi.create(values);
+      const credentials = await usersApi.create({
+        ...values,
+        password: values.password || undefined,
+        auto_assign_new_customers:
+          values.role === "manager" && values.auto_assign_new_customers,
+      });
+      reset({
+        name: "",
+        email: "",
+        password: "",
+        role: "manager",
+        auto_assign_new_customers: false,
+      });
       toast.success("User created");
       onSaved();
+      onCreated(credentials);
       onClose();
     } catch (error) {
       const message = getApiError(error);
@@ -81,8 +114,8 @@ export function CreateUserDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      title="Add team member"
-      description="Create an account and assign a role. New users can sign in immediately."
+      title="Create user"
+      description="Create an account and assign a role. The user will change their password at first sign-in."
       dismissible={!isSubmitting}
       footer={
         <>
@@ -128,8 +161,7 @@ export function CreateUserDialog({
           label="Temporary password"
           htmlFor="new-password"
           error={errors.password?.message}
-          hint="At least 8 characters. Share it securely; the user can change it later."
-          required
+          hint="Optional. Leave blank to generate a strong temporary password."
         >
           <Input
             id="new-password"
@@ -148,7 +180,88 @@ export function CreateUserDialog({
             ))}
           </Select>
         </Field>
+        {role === "manager" ? (
+          <label className="flex items-start gap-2 text-xs text-ink-600">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              {...register("auto_assign_new_customers")}
+            />
+            Automatically assign new customers to this manager
+          </label>
+        ) : null}
       </form>
+    </Dialog>
+  );
+}
+
+export function UserCredentialsDialog({
+  credentials,
+  onClose,
+}: {
+  credentials: UserCredentials | null;
+  onClose: () => void;
+}) {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (!credentials) setVisible(false);
+  }, [credentials]);
+
+  const copyCredentials = async () => {
+    if (!credentials) return;
+    try {
+      await navigator.clipboard.writeText(
+        `Email: ${credentials.user.email}\nPassword: ${credentials.password}`,
+      );
+      toast.success("Credentials copied");
+    } catch {
+      toast.error("Could not access the clipboard. Copy the credentials manually.");
+    }
+  };
+
+  return (
+    <Dialog
+      open={Boolean(credentials)}
+      onClose={onClose}
+      title="User credentials"
+      description="Save these credentials and share them securely."
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>Close</Button>
+          <Button onClick={() => void copyCredentials()} leftIcon={<Clipboard className="size-4" />}>
+            Copy credentials
+          </Button>
+        </>
+      }
+    >
+      {credentials ? (
+        <div className="space-y-4">
+          <Field label="Email">
+            <Input value={credentials.user.email} readOnly />
+          </Field>
+          <Field label="Temporary password" htmlFor="created-password">
+            <div className="flex gap-2">
+              <Input
+                id="created-password"
+                type={visible ? "text" : "password"}
+                value={credentials.password}
+                readOnly
+              />
+              <Button
+                variant="secondary"
+                aria-label={visible ? "Hide password" : "Show password"}
+                onClick={() => setVisible((value) => !value)}
+              >
+                {visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </Button>
+            </div>
+          </Field>
+          <p className="border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
+            This password is shown only once. It will not appear in user lists or details.
+          </p>
+        </div>
+      ) : null}
     </Dialog>
   );
 }
@@ -173,7 +286,7 @@ export function EditUserDialog({
     formState: { errors, isSubmitting },
   } = useForm<EditValues>({
     resolver: zodResolver(editSchema),
-    defaultValues: { name: "", role: "manager", active: "true" },
+    defaultValues: { name: "", role: "manager" },
   });
 
   useEffect(() => {
@@ -181,7 +294,6 @@ export function EditUserDialog({
       reset({
         name: user.name,
         role: user.role,
-        active: user.is_active ? "true" : "false",
       });
       setServerError(null);
     }
@@ -194,7 +306,6 @@ export function EditUserDialog({
       await usersApi.update(user.id, {
         name: values.name,
         role: values.role,
-        is_active: values.active === "true",
       });
       toast.success("User updated");
       onSaved();
@@ -211,7 +322,7 @@ export function EditUserDialog({
       open={Boolean(user)}
       onClose={onClose}
       title={user ? `Edit ${user.name}` : "Edit user"}
-      description="Update profile details, role, and account status."
+      description="Update profile details and role. Use the row actions to change account status."
       dismissible={!isSubmitting}
       footer={
         <>
@@ -265,17 +376,6 @@ export function EditUserDialog({
           </Select>
         </Field>
 
-        <Field
-          label="Account status"
-          htmlFor="edit-active"
-          error={errors.active?.message}
-          required
-        >
-          <Select id="edit-active" disabled={isSelf} {...register("active")}>
-            <option value="true">Active</option>
-            <option value="false">Inactive</option>
-          </Select>
-        </Field>
       </form>
     </Dialog>
   );

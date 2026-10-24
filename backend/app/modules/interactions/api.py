@@ -10,14 +10,16 @@ from app.modules.auth.permissions import Permission
 from app.modules.interactions.models import InteractionType
 from app.modules.interactions.schema import (
     InteractionCreateRequest,
+    InteractionCreateResponse,
     InteractionDetailResponse,
     InteractionListResponse,
     InteractionResponse,
     InteractionUpdateRequest,
 )
 from app.modules.interactions.service import InteractionService
+from app.modules.insights.service import InsightService
 from app.modules.users.models import User
-from app.utils.cache import invalidate_catalog
+from app.utils.exceptions import AppException
 
 interaction_sort = Literal[
     "occurred_at",
@@ -64,14 +66,36 @@ def list_interactions(
     )
 
 
-@interactions_router.post("", response_model=InteractionResponse, status_code=201)
+@interactions_router.post("", response_model=InteractionCreateResponse, status_code=201)
 def create_interaction(
     data: InteractionCreateRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permissions(Permission.INTERACTIONS_WRITE)),
 ):
     interaction = InteractionService(db).create(data, current_user)
-    return InteractionResponse.model_validate(interaction)
+    insight_status = None
+    insight_error = None
+    if data.generate_insight:
+        try:
+            insight, interaction = InsightService(db).generate(interaction.id, current_user)
+            insight_status = insight.status.value
+        except AppException as exc:
+            if exc.error_code not in {
+                "AI_NOT_CONFIGURED",
+                "AI_GENERATION_FAILED",
+                "NOTES_REQUIRED",
+            }:
+                raise
+            insight_error = exc.message
+            if interaction.insight is not None:
+                insight_status = interaction.insight.status.value
+
+    response = InteractionResponse.model_validate(interaction).model_dump()
+    return InteractionCreateResponse(
+        **response,
+        insight_status=insight_status,
+        insight_error=insight_error,
+    )
 
 
 @interactions_router.get("/{interaction_id}", response_model=InteractionDetailResponse)
@@ -90,6 +114,7 @@ def get_interaction(
     )
 
 
+@interactions_router.put("/{interaction_id}", response_model=InteractionResponse)
 @interactions_router.patch("/{interaction_id}", response_model=InteractionResponse)
 def update_interaction(
     interaction_id: int,

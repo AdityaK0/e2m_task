@@ -31,7 +31,17 @@ export interface InteractionPayload {
   type: InteractionType;
   occurred_at: string;
   notes?: string | null;
-  participants?: string[];
+  participants?: number[];
+  external_attendees?: string[];
+}
+
+export interface InteractionCreatePayload extends InteractionPayload {
+  generate_insight: boolean;
+}
+
+export interface InteractionCreateResponse extends Interaction {
+  insight_status: string | null;
+  insight_error: string | null;
 }
 
 export const interactionsApi = {
@@ -49,8 +59,8 @@ export const interactionsApi = {
     return data;
   },
 
-  async create(payload: InteractionPayload): Promise<Interaction> {
-    const { data } = await api.post<Interaction>("/interactions", payload);
+  async create(payload: InteractionCreatePayload): Promise<InteractionCreateResponse> {
+    const { data } = await api.post<InteractionCreateResponse>("/interactions", payload);
     return data;
   },
 

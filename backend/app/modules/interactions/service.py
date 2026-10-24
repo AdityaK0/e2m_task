@@ -2,13 +2,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.modules.customers.access import get_customer_or_404
-from app.modules.customers.models import CustomerManager
 from app.modules.interactions.models import Interaction
 from app.modules.interactions.repository import InteractionRepository
 from app.modules.insights.models import InsightStatus
 from app.modules.interactions.schema import InteractionCreateRequest, InteractionUpdateRequest
 from app.modules.users.models import User
-from app.utils.cache import invalidate_dashboard_for
 from app.utils.exceptions import AppException
 from app.utils.pagination import pagination_meta
 
@@ -40,21 +38,25 @@ class InteractionService:
         return {"items": items, **pagination_meta(total, page, page_size)}
 
     def create(self, data: InteractionCreateRequest, owner: User) -> Interaction:
-        customer = get_customer_or_404(data.customer_id, owner, self.db)
-        interaction = Interaction(**data.model_dump(), owner_id=owner.id, notes_version=1)
+        get_customer_or_404(data.customer_id, owner, self.db)
+        self._validate_participants(data.participants)
+        interaction = Interaction(
+            **data.model_dump(exclude={"generate_insight"}),
+            owner_id=owner.id,
+            notes_version=1,
+        )
         self.db.add(interaction)
         self.db.commit()
         self.db.refresh(interaction)
-        self._invalidate_customer(customer.id)
         return interaction
 
     def update(self, interaction_id: int, data: InteractionUpdateRequest, user: User) -> Interaction:
         interaction = self.get_or_404(interaction_id, user)
-        affected_customer_ids = {interaction.customer_id}
         payload = data.model_dump(exclude_unset=True)
         if payload.get("customer_id") is not None:
-            new_customer = get_customer_or_404(payload["customer_id"], user, self.db)
-            affected_customer_ids.add(new_customer.id)
+            get_customer_or_404(payload["customer_id"], user, self.db)
+        if payload.get("participants") is not None:
+            self._validate_participants(payload["participants"])
 
         notes_changed = "notes" in payload and payload["notes"] != interaction.notes
         for key, value in payload.items():
@@ -66,24 +68,28 @@ class InteractionService:
                 insight.status = InsightStatus.STALE
         self.db.commit()
         self.db.refresh(interaction)
-        for customer_id in affected_customer_ids:
-            self._invalidate_customer(customer_id)
         return interaction
 
-    def delete(self, interaction_id: int, user: User) -> None:
-        interaction = self.get_or_404(interaction_id, user)
-        customer_id = interaction.customer_id
-        from app.utils.models import utc_now
-        interaction.deleted_at = utc_now()
-        self.db.commit()
-        self._invalidate_customer(customer_id)
-
-    def _invalidate_customer(self, customer_id: int) -> None:
-        manager_ids = set(
+    def _validate_participants(self, participant_ids: list[int]) -> None:
+        if not participant_ids:
+            return
+        users = list(
             self.db.scalars(
-                select(CustomerManager.manager_id).where(
-                    CustomerManager.customer_id == customer_id
+                select(User).where(
+                    User.id.in_(participant_ids),
+                    User.is_active.is_(True),
                 )
             ).all()
         )
-        invalidate_dashboard_for(manager_ids)
+        if {user.id for user in users} != set(participant_ids):
+            raise AppException(
+                "Participants must be existing active users",
+                status_code=400,
+                error_code="INVALID_PARTICIPANT",
+            )
+
+    def delete(self, interaction_id: int, user: User) -> None:
+        interaction = self.get_or_404(interaction_id, user)
+        from app.utils.models import utc_now
+        interaction.deleted_at = utc_now()
+        self.db.commit()

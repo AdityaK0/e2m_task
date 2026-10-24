@@ -3,41 +3,22 @@ import axios, {
   type InternalAxiosRequestConfig,
 } from "axios";
 
-import type { AuthResponse } from "./types";
-import { clearAccessToken, getAccessToken, setAccessToken } from "./token";
+import { clearTokens, getAccessToken, getRefreshToken, setAccessToken } from "@/lib/auth/token-storage";
+
+import type { RefreshResponse } from "./types";
 
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1";
 
 export const AUTH_EXPIRED_EVENT = "e2m:auth-expired";
 
-export function getCsrfToken(): string | null {
-  if (typeof document === "undefined") return null;
-  const match = document.cookie
-    .split("; ")
-    .find((cookie) => cookie.startsWith("csrf_token="));
-  if (!match) return null;
-  const value = match.slice("csrf_token=".length);
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-}
-
-export function hasRefreshHint(): boolean {
-  return getCsrfToken() !== null;
-}
-
 export const api = axios.create({
   baseURL: API_BASE_URL,
-  withCredentials: true,
   headers: { "Content-Type": "application/json" },
 });
 
 const refreshClient = axios.create({
   baseURL: API_BASE_URL,
-  withCredentials: true,
   headers: { "Content-Type": "application/json" },
 });
 
@@ -53,65 +34,75 @@ interface RetryableConfig extends InternalAxiosRequestConfig {
   _retry?: boolean;
 }
 
-const AUTH_PATHS = ["/auth/login", "/auth/register", "/auth/refresh", "/auth/logout"];
-
-function isAuthMutation(url?: string): boolean {
-  return AUTH_PATHS.some((path) => url?.includes(path));
+function isLoginOrRefresh(url?: string): boolean {
+  const path = url?.split("?")[0];
+  return path === "/auth/login" || path === "/auth/refresh";
 }
 
 let refreshPromise: Promise<string | null> | null = null;
+let authExpiryHandled = false;
 
-export async function requestSessionRefresh(): Promise<AuthResponse> {
-  const csrf = getCsrfToken();
-  if (!csrf) {
-    throw new Error("No refresh session is available");
+export async function requestSessionRefresh(): Promise<RefreshResponse> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) {
+    throw new Error("No refresh token is available.");
   }
-  const response = await refreshClient.post<AuthResponse>("/auth/refresh", null, {
-    headers: { "X-CSRF-Token": csrf },
+  const { data } = await refreshClient.post<RefreshResponse>("/auth/refresh", {
+    refresh_token: refreshToken,
   });
-  setAccessToken(response.data.access_token);
-  return response.data;
+  setAccessToken(data.access_token);
+  authExpiryHandled = false;
+  return data;
 }
 
-async function rotateSession(): Promise<string | null> {
-  try {
-    const session = await requestSessionRefresh();
-    return session.access_token;
-  } catch {
-    return null;
-  }
+export function resetAuthExpiryHandling(): void {
+  authExpiryHandled = false;
 }
 
-export function refreshAccessToken(): Promise<string | null> {
+function refreshAccessToken(): Promise<string | null> {
   if (!refreshPromise) {
-    refreshPromise = rotateSession().finally(() => {
-      refreshPromise = null;
-    });
+    refreshPromise = requestSessionRefresh()
+      .then((response) => response.access_token)
+      .catch(() => null)
+      .finally(() => {
+        refreshPromise = null;
+      });
   }
   return refreshPromise;
+}
+
+function expireClientSession(): void {
+  if (authExpiryHandled) return;
+  authExpiryHandled = true;
+  clearTokens();
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+    if (window.location.pathname !== "/login") {
+      window.location.replace("/login");
+    }
+  }
 }
 
 api.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
     const original = error.config as RetryableConfig | undefined;
-    const status = error.response?.status;
     if (
-      status === 401 &&
+      error.response?.status === 401 &&
       original &&
-      !original._retry &&
-      !isAuthMutation(original.url)
+      !isLoginOrRefresh(original.url)
     ) {
+      if (original._retry) {
+        expireClientSession();
+        return Promise.reject(error);
+      }
       original._retry = true;
       const token = await refreshAccessToken();
       if (token) {
         original.headers.set("Authorization", `Bearer ${token}`);
         return api(original);
       }
-      clearAccessToken();
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
-      }
+      expireClientSession();
     }
     return Promise.reject(error);
   },

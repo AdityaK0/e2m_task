@@ -8,7 +8,7 @@ from app.modules.auth.permissions import Permission, has_permission
 from app.modules.users.models import Role, User
 from app.modules.users.repository import UserRepository
 from app.utils.exceptions import AppException
-from app.utils.security import decode_access_token
+from app.utils.security import decode_token
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -23,20 +23,48 @@ def get_current_user(
     if credentials is None:
         raise unauthorized
     try:
-        payload = decode_access_token(credentials.credentials)
-    except jwt.PyJWTError:
-        raise unauthorized
+        payload = decode_token(credentials.credentials)
+    except jwt.ExpiredSignatureError as exc:
+        raise AppException(
+            "Access token has expired",
+            status_code=401,
+            error_code="TOKEN_EXPIRED",
+        ) from exc
+    except jwt.PyJWTError as exc:
+        raise AppException(
+            "Invalid access token",
+            status_code=401,
+            error_code="INVALID_TOKEN",
+        ) from exc
     if payload.get("type") != "access":
-        raise unauthorized
+        raise AppException(
+            "Invalid access token",
+            status_code=401,
+            error_code="INVALID_TOKEN",
+        )
     subject = payload.get("sub")
     try:
         user_id = int(subject)
     except (TypeError, ValueError):
-        raise unauthorized
+        raise AppException(
+            "Invalid access token",
+            status_code=401,
+            error_code="INVALID_TOKEN",
+        )
 
     user = UserRepository(db).get_by_id(user_id)
-    if user is None or not user.is_active:
-        raise unauthorized
+    if user is None:
+        raise AppException(
+            "Invalid access token",
+            status_code=401,
+            error_code="INVALID_TOKEN",
+        )
+    if not user.is_active:
+        raise AppException(
+            "This account is no longer active",
+            status_code=401,
+            error_code="ACCOUNT_DISABLED",
+        )
     return user
 
 

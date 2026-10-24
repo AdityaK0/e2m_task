@@ -15,6 +15,7 @@ import { toast } from "sonner";
 
 import { InsightPanel } from "@/components/insights/insight-panel";
 import { InteractionForm } from "@/components/interactions/interaction-form";
+import { ParticipantChips } from "@/components/interactions/participant-chips";
 import { Alert } from "@/components/ui/alert";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -28,7 +29,8 @@ import { isAxiosError } from "@/lib/api/client";
 import { getApiError, getApiErrorCode } from "@/lib/api/errors";
 import { insightsApi } from "@/lib/api/insights";
 import { interactionsApi } from "@/lib/api/interactions";
-import type { InsightConfig, InteractionDetail, MeetingInsight } from "@/lib/api/types";
+import { usersApi } from "@/lib/api/users";
+import type { InsightConfig, InteractionDetail, MeetingInsight, UserOption } from "@/lib/api/types";
 import { formatDateTime, formatRelative } from "@/lib/utils";
 
 function DetailLine({
@@ -68,6 +70,13 @@ export default function InteractionDetailPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [participantUsers, setParticipantUsers] = useState<UserOption[]>([]);
+
+  useEffect(() => {
+    usersApi.options().then(setParticipantUsers).catch((error) => {
+      toast.error(getApiError(error));
+    });
+  }, []);
 
   useEffect(() => {
     insightsApi
@@ -212,6 +221,7 @@ export default function InteractionDetailPage() {
         <div className="space-y-6">
           <InsightPanel
             insight={insight}
+            interactionOwner={interaction.owner?.name ?? null}
             loading={insightLoading}
             generating={generating}
             configured={config?.configured ?? null}
@@ -261,20 +271,11 @@ export default function InteractionDetailPage() {
                 )}
               </DetailLine>
               <DetailLine icon={Users} label="Participants">
-                {interaction.participants.length === 0 ? (
-                  "None recorded"
-                ) : (
-                  <div className="flex flex-wrap gap-1.5">
-                    {interaction.participants.map((participant) => (
-                      <span
-                        key={participant}
-                        className=" border border-ink-200 bg-ink-50 px-2 py-0.5 text-[11px] text-ink-600"
-                      >
-                        {participant}
-                      </span>
-                    ))}
-                  </div>
-                )}
+                <ParticipantChips
+                  participants={interaction.participants}
+                  externalAttendees={interaction.external_attendees}
+                  users={participantUsers}
+                />
               </DetailLine>
               <DetailLine icon={FileText} label="Created">
                 {formatDateTime(interaction.created_at)}

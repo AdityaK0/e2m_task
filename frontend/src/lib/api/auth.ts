@@ -1,4 +1,4 @@
-import { api, getCsrfToken } from "./client";
+import { api } from "./client";
 import type {
   AuthResponse,
   AuthorizationConfig,
@@ -13,21 +13,9 @@ export interface LoginPayload {
   password: string;
 }
 
-export interface RegisterPayload {
-  name: string;
-  email: string;
-  password: string;
-  password_confirm: string;
-}
-
 export const authApi = {
   async login(payload: LoginPayload): Promise<AuthResponse> {
     const { data } = await api.post<AuthResponse>("/auth/login", payload);
-    return data;
-  },
-
-  async register(payload: RegisterPayload): Promise<AuthResponse> {
-    const { data } = await api.post<AuthResponse>("/auth/register", payload);
     return data;
   },
 
@@ -49,20 +37,6 @@ export const authApi = {
       current_password: currentPassword,
       new_password: newPassword,
     });
-    return data;
-  },
-
-  async logout(): Promise<void> {
-    const csrf = getCsrfToken();
-    await api.post(
-      "/auth/logout",
-      null,
-      csrf ? { headers: { "X-CSRF-Token": csrf } } : undefined,
-    );
-  },
-
-  async logoutAll(): Promise<MessageResponse> {
-    const { data } = await api.post<MessageResponse>("/auth/logout-all");
     return data;
   },
 

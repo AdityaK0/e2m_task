@@ -1,9 +1,13 @@
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 
-import { authApi, type LoginPayload, type RegisterPayload } from "@/lib/api/auth";
-import { hasRefreshHint, requestSessionRefresh } from "@/lib/api/client";
+import { authApi, type LoginPayload } from "@/lib/api/auth";
+import { resetAuthExpiryHandling } from "@/lib/api/client";
 import { getApiError } from "@/lib/api/errors";
-import { clearAccessToken, setAccessToken } from "@/lib/api/token";
+import {
+  clearTokens,
+  hasStoredTokens,
+  setTokens,
+} from "@/lib/auth/token-storage";
 import type { AuthResponse, User } from "@/lib/api/types";
 
 export type AuthStatus =
@@ -33,51 +37,31 @@ export const login = createAsyncThunk<
 >("auth/login", async (payload, { rejectWithValue }) => {
   try {
     const session = await authApi.login(payload);
-    setAccessToken(session.access_token);
+    setTokens(session.access_token, session.refresh_token);
+    resetAuthExpiryHandling();
     return session;
   } catch (error) {
     return rejectWithValue(getApiError(error));
   }
 });
 
-export const register = createAsyncThunk<
-  AuthResponse,
-  RegisterPayload,
-  { rejectValue: string }
->("auth/register", async (payload, { rejectWithValue }) => {
-  try {
-    const session = await authApi.register(payload);
-    setAccessToken(session.access_token);
-    return session;
-  } catch (error) {
-    return rejectWithValue(getApiError(error));
-  }
-});
-
-export const bootstrapAuth = createAsyncThunk<AuthResponse | null>(
+export const bootstrapAuth = createAsyncThunk<User | null>(
   "auth/bootstrap",
   async () => {
-    if (!hasRefreshHint()) {
-      clearAccessToken();
+    if (!hasStoredTokens()) {
       return null;
     }
     try {
-      return await requestSessionRefresh();
+      return await authApi.me();
     } catch {
-      clearAccessToken();
+      clearTokens();
       return null;
     }
   },
 );
 
 export const logout = createAsyncThunk<void>("auth/logout", async () => {
-  try {
-    await authApi.logout();
-  } catch {
-    // Local session is cleared even when the server cannot be reached.
-  } finally {
-    clearAccessToken();
-  }
+  clearTokens();
 });
 
 const authSlice = createSlice({
@@ -88,7 +72,6 @@ const authSlice = createSlice({
       state.user = action.payload;
     },
     sessionExpired(state) {
-      clearAccessToken();
       state.user = null;
       state.status = "unauthenticated";
       state.initialized = true;
@@ -115,21 +98,6 @@ const authSlice = createSlice({
         state.initialized = true;
         state.error = action.payload ?? "Unable to sign in";
       })
-      .addCase(register.pending, (state) => {
-        state.status = "loading";
-        state.error = null;
-      })
-      .addCase(register.fulfilled, (state, action) => {
-        state.status = "authenticated";
-        state.initialized = true;
-        state.user = action.payload.user;
-        state.error = null;
-      })
-      .addCase(register.rejected, (state, action) => {
-        state.status = "unauthenticated";
-        state.initialized = true;
-        state.error = action.payload ?? "Unable to create account";
-      })
       .addCase(bootstrapAuth.pending, (state) => {
         state.status = "loading";
       })
@@ -137,7 +105,7 @@ const authSlice = createSlice({
         state.initialized = true;
         if (action.payload) {
           state.status = "authenticated";
-          state.user = action.payload.user;
+          state.user = action.payload;
         } else {
           state.status = "unauthenticated";
           state.user = null;

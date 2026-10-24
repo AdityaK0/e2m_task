@@ -71,6 +71,9 @@ class Customer(BaseModel, SoftDeleteMixin):
         index=True,
     )
     health_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    health_sample_size: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     manager_assignments: Mapped[list[CustomerManager]] = relationship(

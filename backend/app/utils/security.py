@@ -1,11 +1,11 @@
-import hashlib
-import secrets
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
 import jwt
 
 from app.config import settings
+
+JWT_ALGORITHM = "HS256"
 
 
 def hash_password(password: str) -> str:
@@ -21,7 +21,7 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 
 def validate_password(password: str) -> None:
-    """Checks shared by registration and admin user creation."""
+    """Validate password length constraints shared by account operations."""
     from app.utils.exceptions import AppException
 
     if len(password) < 8:
@@ -38,35 +38,35 @@ def validate_password(password: str) -> None:
         )
 
 
-def create_access_token(subject: str, extra: dict | None = None) -> tuple[str, int]:
+def _create_token(subject: str, token_type: str, expires_delta: timedelta) -> str:
     now = datetime.now(timezone.utc)
-    expires_delta = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     payload = {
         "sub": subject,
         "iat": now,
         "exp": now + expires_delta,
-        "type": "access",
+        "type": token_type,
     }
-    if extra:
-        payload.update(extra)
-    token = jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+    return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+
+
+def create_access_token(subject: str) -> tuple[str, int]:
+    expires_delta = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    token = _create_token(subject, "access", expires_delta)
     return token, int(expires_delta.total_seconds())
 
 
-def decode_access_token(token: str) -> dict:
-    return jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+def create_refresh_token(subject: str) -> str:
+    expires_delta = timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    return _create_token(subject, "refresh", expires_delta)
 
 
-def generate_token_secret() -> str:
-    return secrets.token_urlsafe(48)
-
-
-def hash_token_secret(secret: str) -> str:
-    return hashlib.sha256(secret.encode("utf-8")).hexdigest()
-
-
-def generate_csrf_token() -> str:
-    return secrets.token_urlsafe(32)
+def decode_token(token: str) -> dict:
+    return jwt.decode(
+        token,
+        settings.JWT_SECRET_KEY,
+        algorithms=[JWT_ALGORITHM],
+        options={"require": ["sub", "type", "iat", "exp"]},
+    )
 
 
 def normalize_email(email: str) -> str:

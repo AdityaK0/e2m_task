@@ -47,7 +47,13 @@ import { getApiError } from "@/lib/api/errors";
 import { interactionsApi } from "@/lib/api/interactions";
 import type { CustomerDetail, Interaction, UserOption } from "@/lib/api/types";
 import { usersApi } from "@/lib/api/users";
-import { formatDate, formatDateTime, formatRelative } from "@/lib/utils";
+import { preferencesApi } from "@/lib/api/preferences";
+import {
+  formatDate,
+  formatDateTime,
+  formatRelative,
+  toSafeHttpUrl,
+} from "@/lib/utils";
 
 function InfoRow({
   icon: Icon,
@@ -84,6 +90,7 @@ export default function CustomerDetailPage() {
   const [deleting, setDeleting] = useState(false);
   const [managerOptions, setManagerOptions] = useState<UserOption[]>([]);
   const [selectedManagerId, setSelectedManagerId] = useState("");
+  const [healthWindow, setHealthWindow] = useState(5);
   const isAdmin = canDo("users:manage");
 
   useEffect(() => {
@@ -116,8 +123,15 @@ export default function CustomerDetailPage() {
 
   useEffect(() => {
     if (!isAdmin) return;
-    usersApi.options().then(setManagerOptions).catch((err) => toast.error(getApiError(err)));
+    usersApi.managerOptions().then(setManagerOptions).catch((err) => toast.error(getApiError(err)));
   }, [isAdmin]);
+
+  useEffect(() => {
+    preferencesApi.list().then((preferences) => {
+      const setting = preferences.find((preference) => preference.key === "health_score_window");
+      if (setting) setHealthWindow(setting.value);
+    }).catch((err) => toast.error(getApiError(err)));
+  }, []);
 
   const changeManager = async (managerId: number, assign: boolean) => {
     if (!customer) return;
@@ -158,11 +172,7 @@ export default function CustomerDetailPage() {
     );
   }
 
-  const website = customer.website
-    ? customer.website.startsWith("http")
-      ? customer.website
-      : `https://${customer.website}`
-    : null;
+  const website = toSafeHttpUrl(customer.website);
 
   return (
     <div>
@@ -231,28 +241,10 @@ export default function CustomerDetailPage() {
                   {customer.contact_name || "Not set"}
                 </InfoRow>
                 <InfoRow icon={Mail} label="Email">
-                  {customer.contact_email ? (
-                    <a
-                      href={`mailto:${customer.contact_email}`}
-                      className="underline decoration-ink-300 underline-offset-4 transition hover:decoration-ink-900"
-                    >
-                      {customer.contact_email}
-                    </a>
-                  ) : (
-                    "Not set"
-                  )}
+                  {customer.contact_email || "Not set"}
                 </InfoRow>
                 <InfoRow icon={Phone} label="Phone">
-                  {customer.contact_phone ? (
-                    <a
-                      href={`tel:${customer.contact_phone}`}
-                      className="underline decoration-ink-300 underline-offset-4 transition hover:decoration-ink-900"
-                    >
-                      {customer.contact_phone}
-                    </a>
-                  ) : (
-                    "Not set"
-                  )}
+                  {customer.contact_phone || "Not set"}
                 </InfoRow>
               </div>
               <div className="divide-y divide-ink-100">
@@ -432,7 +424,7 @@ export default function CustomerDetailPage() {
                   </p>
                   <p className="mt-2 text-xs text-ink-500">
                     {customer.health_score === null
-                      ? "Not assessed"
+                      ? "No data yet"
                       : customer.health_score >= 70
                         ? "Healthy account"
                         : customer.health_score >= 40
@@ -442,7 +434,11 @@ export default function CustomerDetailPage() {
                 </div>
               </div>
               <div className="mt-5">
-                <HealthIndicator score={customer.health_score} />
+                <HealthIndicator
+                  score={customer.health_score}
+                  sampleSize={customer.health_sample_size}
+                  window={healthWindow}
+                />
               </div>
 
               <div className="mt-5 divide-y divide-ink-100 border-t border-ink-100">

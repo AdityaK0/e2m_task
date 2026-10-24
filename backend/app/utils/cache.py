@@ -8,7 +8,7 @@ from redis.exceptions import RedisError
 
 from app.config import settings
 
-logger = logging.getLogger("app.cache")
+logger = logging.getLogger("e2m-insights.cache")
 
 # A single synchronous client is used by the synchronous service layer. Short
 # connect/read timeouts keep a Redis outage from becoming an API outage.

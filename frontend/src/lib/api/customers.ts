@@ -36,7 +36,6 @@ export interface CustomerPayload {
   industry?: string | null;
   website?: string | null;
   status?: CustomerStatus;
-  health_score?: number | null;
   manager_ids?: number[];
   notes?: string | null;
 }

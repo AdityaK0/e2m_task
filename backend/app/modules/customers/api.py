@@ -20,13 +20,6 @@ from app.modules.customers.schema import (
 from app.modules.customers.service import CustomerService
 from app.modules.users.models import Role, User
 from app.modules.users.schema import UserSummary
-from app.utils.cache import (
-    CUSTOMER_LIST_VERSION_KEY,
-    build_list_cache_key,
-    get_json,
-    get_version,
-    set_json,
-)
 
 customer_sort = Literal[
     "name", "-name", "created_at", "-created_at", "updated_at", "-updated_at",
@@ -46,30 +39,16 @@ def list_customers(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permissions(Permission.CUSTOMERS_READ)),
 ):
-    params = {
-        "search": search, "status": status.value if status else None,
-        "assigned_manager_id": assigned_manager_id, "sort": sort,
-        "page": page, "page_size": page_size,
-    }
-    key = build_list_cache_key(
-        "customers:list", current_user.role.value, current_user.id, params,
-        get_version(CUSTOMER_LIST_VERSION_KEY),
-    )
-    cached = get_json(key)
-    if cached is not None:
-        return CustomerListResponse.model_validate(cached)
     result = CustomerService(db).list_customers(
         user=current_user, search=search, status=status,
         assigned_manager_id=assigned_manager_id, sort=sort,
         page=page, page_size=page_size,
     )
-    response = CustomerListResponse(
+    return CustomerListResponse(
         items=[CustomerResponse.model_validate(item) for item in result["items"]],
         total=result["total"], page=result["page"],
         page_size=result["page_size"], pages=result["pages"],
     )
-    set_json(key, response.model_dump(mode="json"))
-    return response
 
 
 @customers_router.post("", response_model=CustomerResponse, status_code=201)

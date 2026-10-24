@@ -16,7 +16,6 @@ class CustomerCreateRequest(BaseModel):
     industry: str | None = Field(default=None, max_length=120)
     website: str | None = Field(default=None, max_length=255)
     status: CustomerStatus = CustomerStatus.PROSPECT
-    health_score: int | None = Field(default=None, ge=0, le=100)
     manager_ids: list[int] = Field(default_factory=list, max_length=500)
     notes: str | None = Field(default=None, max_length=20000)
 
@@ -53,7 +52,6 @@ class CustomerUpdateRequest(BaseModel):
     industry: str | None = Field(default=None, max_length=120)
     website: str | None = Field(default=None, max_length=255)
     status: CustomerStatus | None = None
-    health_score: int | None = Field(default=None, ge=0, le=100)
     notes: str | None = Field(default=None, max_length=20000)
 
     @field_validator("name")
@@ -80,6 +78,7 @@ class CustomerResponse(BaseModel):
     website: str | None
     status: CustomerStatus
     health_score: int | None
+    health_sample_size: int
     assigned_managers: list[UserSummary] = Field(default_factory=list)
     notes: str | None
     created_at: datetime

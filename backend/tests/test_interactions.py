@@ -3,8 +3,9 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 
 from app.modules.insights.models import InsightStatus, MeetingInsight
+from app.modules.insights.providers.base import LLMProviderError
 from app.modules.interactions.models import Interaction
-from app.modules.users.models import Role
+from app.modules.users.models import Role, User
 
 from .conftest import (
     auth_headers,
@@ -38,14 +39,16 @@ def test_create_list_filter_and_get_interaction(client, make_user):
             type="call",
             occurred_at=(now - timedelta(days=10)).isoformat(),
             notes="They asked about SSO and pricing.",
-            participants=["  Alice  ", "", "Bob"],
+            participants=[user.id],
+            external_attendees=["  Alice  ", "", "Bob"],
         ),
         headers=auth_headers(token),
     )
     assert meeting.status_code == 201, meeting.text
     meeting_body = meeting.json()
     assert meeting_body["type"] == "call"
-    assert meeting_body["participants"] == ["Alice", "Bob"]
+    assert meeting_body["participants"] == [user.id]
+    assert meeting_body["external_attendees"] == ["Alice", "Bob"]
     assert meeting_body["notes_version"] == 1
     assert meeting_body["owner_id"] == user.id
     assert meeting_body["customer"]["id"] == customer_id
@@ -159,6 +162,121 @@ def test_create_interaction_validation_and_permissions(client, make_user):
         f"/api/v1/interactions/{created['id']}", headers=auth_headers(viewer_token)
     )
     assert viewer_delete.status_code == 403
+
+
+def test_active_user_options_and_participant_access(client, make_user):
+    admin = make_user("admin@example.com", role=Role.ADMIN)
+    manager = make_user("manager@example.com", role=Role.MANAGER)
+    inactive = make_user(
+        "inactive@example.com", role=Role.MANAGER, is_active=False
+    )
+    admin_token, _ = login(client, admin.email, admin.password)
+    manager_token, _ = login(client, manager.email, manager.password)
+
+    for token in (admin_token, manager_token):
+        options = client.get("/api/v1/users/options", headers=auth_headers(token))
+        assert options.status_code == 200
+        assert all(set(user) == {"id", "name"} for user in options.json())
+        assert {user["id"] for user in options.json()} == {admin.id, manager.id}
+        assert inactive.id not in {user["id"] for user in options.json()}
+
+    customer = client.post(
+        "/api/v1/customers",
+        json=customer_payload(name="Admin-owned customer"),
+        headers=auth_headers(admin_token),
+    ).json()
+    meeting = client.post(
+        "/api/v1/interactions",
+        json=interaction_payload(customer["id"], participants=[manager.id]),
+        headers=auth_headers(admin_token),
+    )
+    assert meeting.status_code == 201, meeting.text
+
+    hidden_from_participant = client.get(
+        f"/api/v1/interactions/{meeting.json()['id']}",
+        headers=auth_headers(manager_token),
+    )
+    assert hidden_from_participant.status_code == 404
+
+    invalid_participant = client.post(
+        "/api/v1/interactions",
+        json=interaction_payload(customer["id"], participants=[inactive.id]),
+        headers=auth_headers(admin_token),
+    )
+    assert invalid_participant.status_code == 400
+    assert invalid_participant.json()["error_code"] == "INVALID_PARTICIPANT"
+
+
+def test_active_user_options_are_ordered_newest_first(client, make_user, db):
+    admin = make_user("admin@example.com", role=Role.ADMIN)
+    first = make_user("first@example.com", name="First")
+    second = make_user("second@example.com", name="Second")
+    latest = make_user("latest@example.com", name="Latest")
+    first_user = db.get(User, first.id)
+    second_user = db.get(User, second.id)
+    latest_user = db.get(User, latest.id)
+    admin_user = db.get(User, admin.id)
+    admin_user.created_at = datetime(2019, 1, 1, tzinfo=timezone.utc)
+    first_user.created_at = datetime(2020, 1, 1, tzinfo=timezone.utc)
+    second_user.created_at = datetime(2021, 1, 1, tzinfo=timezone.utc)
+    latest_user.created_at = datetime(2022, 1, 1, tzinfo=timezone.utc)
+    db.commit()
+
+    token, _ = login(client, admin.email, admin.password)
+    response = client.get("/api/v1/users/options", headers=auth_headers(token))
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()[:3]] == [
+        latest.id,
+        second.id,
+        first.id,
+    ]
+
+
+def test_create_interaction_generates_insight_only_when_requested(
+    client, make_user, fake_provider
+):
+    _, token, customer_id = _setup(client, make_user)
+
+    saved = client.post(
+        "/api/v1/interactions",
+        json=interaction_payload(customer_id, generate_insight=False),
+        headers=auth_headers(token),
+    )
+    assert saved.status_code == 201, saved.text
+    assert saved.json()["insight_status"] is None
+    assert saved.json()["insight_error"] is None
+    assert fake_provider.calls == 0
+
+    generated = client.post(
+        "/api/v1/interactions",
+        json=interaction_payload(customer_id, generate_insight=True),
+        headers=auth_headers(token),
+    )
+    assert generated.status_code == 201, generated.text
+    assert generated.json()["insight_status"] == "completed"
+    assert generated.json()["insight_error"] is None
+    assert generated.json()["ai_provider"] == "fake"
+    assert fake_provider.calls == 1
+
+
+def test_create_interaction_is_saved_when_requested_insight_fails(
+    client, make_user, fake_provider, monkeypatch
+):
+    monkeypatch.setattr("app.config.settings.AI_MAX_RETRIES", 0)
+    fake_provider.error = LLMProviderError("temporary provider failure")
+    _, token, customer_id = _setup(client, make_user)
+
+    response = client.post(
+        "/api/v1/interactions",
+        json=interaction_payload(customer_id, generate_insight=True),
+        headers=auth_headers(token),
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["id"] is not None
+    assert response.json()["insight_status"] == "failed"
+    assert response.json()["insight_error"] == "AI generation failed. Please try again."
 
 
 def test_update_notes_versioning_and_validation(client, make_user, db):

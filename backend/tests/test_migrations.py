@@ -12,13 +12,14 @@ from app.config import settings
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 
 
-def test_alembic_has_exactly_one_head():
+def test_alembic_has_one_linear_migration_head():
     config = Config(str(BACKEND_DIR / "alembic.ini"))
     script = ScriptDirectory.from_config(config)
-    assert len(script.get_heads()) == 1
+    assert script.get_heads() == ["e86d5e791228"]
     revisions = list(script.walk_revisions())
     assert len(revisions) == 1
     assert revisions[0].revision == "e86d5e791228"
+    assert revisions[0].down_revision is None
 
 
 def test_offline_upgrade_renders_all_tables(monkeypatch):
@@ -33,13 +34,18 @@ def test_offline_upgrade_renders_all_tables(monkeypatch):
         "customers",
         "interactions",
         "meeting_insights",
-        "refresh_sessions",
         "customer_managers",
+        "preferences",
     ):
         assert f"CREATE TABLE {table}" in sql
     assert "uq_meeting_insights_interaction_id" in sql
     assert "ck_customers_health_score_range" in sql
     assert "auto_assign_new_customers" in sql
+    assert "must_change_password" in sql
+    assert "health_sample_size" in sql
+    assert "external_attendees" in sql
+    assert "CREATE TABLE preferences" in sql
+    assert "refresh_sessions" not in sql
 
 
 def test_upgrade_creates_current_schema_from_scratch(tmp_path, monkeypatch):
@@ -61,8 +67,8 @@ def test_upgrade_creates_current_schema_from_scratch(tmp_path, monkeypatch):
                 "customers",
                 "interactions",
                 "meeting_insights",
-                "refresh_sessions",
                 "users",
+                "preferences",
             }
             user_columns = {column["name"] for column in inspector.get_columns("users")}
             customer_columns = {
@@ -72,9 +78,20 @@ def test_upgrade_creates_current_schema_from_scratch(tmp_path, monkeypatch):
                 column["name"]
                 for column in inspector.get_columns("customer_managers")
             }
+            interaction_columns = {
+                column["name"] for column in inspector.get_columns("interactions")
+            }
+            preference_columns = {
+                column["name"] for column in inspector.get_columns("preferences")
+            }
         assert "auto_assign_new_customers" in user_columns
+        assert "must_change_password" in user_columns
         assert "assigned_manager_id" not in customer_columns
         assert {"deleted_at", "name", "status"} <= customer_columns
+        assert {"ai_provider", "ai_model"} <= interaction_columns
+        assert {"health_score", "health_sample_size"} <= customer_columns
+        assert {"participants", "external_attendees"} <= interaction_columns
+        assert {"id", "key", "value", "updated_by", "updated_at"} == preference_columns
         assert {"customer_id", "manager_id", "assigned_by", "created_at"} <= assignment_columns
 
         with engine.begin() as connection:
@@ -106,6 +123,13 @@ def test_upgrade_creates_current_schema_from_scratch(tmp_path, monkeypatch):
                 text("SELECT customer_id, manager_id, assigned_by FROM customer_managers")
             ).one()
         assert tuple(result) == (1, 2, 1)
+
+        command.downgrade(config, "base")
+        with engine.connect() as connection:
+            inspector = inspect(connection)
+            assert set(inspector.get_table_names()) == {"alembic_version"}
+        command.upgrade(config, "head")
+        command.check(config)
     finally:
         if engine is not None:
             engine.dispose()

@@ -7,8 +7,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-DEV_JWT_SECRET = "local-dev-only-secret-change-me-0123456789"
-
 
 class Settings(BaseSettings):
     """Environment-backed configuration.
@@ -18,7 +16,7 @@ class Settings(BaseSettings):
     ``.env.example``). Production configuration is validated below.
     """
 
-    APP_NAME: str = "E2M Client Insights"
+    APP_NAME: str = "E2M Insights"
     APP_ENV: Literal["development", "test", "production"] = "development"
     DEBUG: bool = False
     API_V1_PREFIX: str = "/api/v1"
@@ -34,33 +32,25 @@ class Settings(BaseSettings):
     REDIS_CACHE_TTL_SECONDS: int = 60
     REDIS_SOCKET_TIMEOUT_SECONDS: float = 1.5
 
-    JWT_SECRET_KEY: str = DEV_JWT_SECRET
-    JWT_ALGORITHM: str = "HS256"
+    JWT_SECRET_KEY: str
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     CORS_ORIGINS: str = "http://localhost:3000"
-    COOKIE_SECURE: bool = False
-    COOKIE_SAMESITE: Literal["lax", "strict", "none"] = "lax"
-    COOKIE_DOMAIN: str | None = None
 
-    LOGIN_MAX_ATTEMPTS: int = 5
-    LOGIN_WINDOW_SECONDS: int = 300
-
-    AI_PROVIDER: str = "openai"
-    AI_API_KEY: str = ""
-    AI_MODEL: str = "gpt-4o-mini"
-    AI_BASE_URL: str | None = None
-    AI_TIMEOUT_SECONDS: float = 30.0
+    LLM_PROVIDER: str = "openai"
+    LLM_API_KEY: str = ""
+    LLM_BASE_URL: str | None = None
+    LLM_MODEL: str = "gpt-4o-mini"
+    LLM_TIMEOUT_SECONDS: float = Field(default=30.0, gt=0)
+    LLM_JSON_MODE: bool = False
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-2.5-flash"
     AI_MAX_RETRIES: int = 2
 
     BOOTSTRAP_ADMIN_EMAIL: str = ""
     BOOTSTRAP_ADMIN_PASSWORD: str = ""
     BOOTSTRAP_ADMIN_NAME: str = "Platform Admin"
-    SEED_DEMO_DATA: bool = False
-
-    ALLOW_REGISTRATION: bool = True
-
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / ".env",
         env_file_encoding="utf-8",
@@ -75,7 +65,7 @@ class Settings(BaseSettings):
             raise ValueError("JWT_SECRET_KEY must be at least 32 characters long")
         return value
 
-    @field_validator("AI_BASE_URL", mode="before")
+    @field_validator("LLM_BASE_URL", mode="before")
     @classmethod
     def empty_to_none(cls, value: str | None) -> str | None:
         if value is None or not str(value).strip():
@@ -86,12 +76,12 @@ class Settings(BaseSettings):
     def validate_production_settings(self) -> "Settings":
         if self.APP_ENV != "production":
             return self
-        if self.JWT_SECRET_KEY == DEV_JWT_SECRET or "change-me" in self.JWT_SECRET_KEY:
+        secret = self.JWT_SECRET_KEY.lower()
+        if any(
+            marker in secret
+            for marker in ("change-me", "replace-with", "replace-this", "local-dev")
+        ):
             raise ValueError("Set a strong, unique JWT_SECRET_KEY in production")
-        if not self.COOKIE_SECURE:
-            raise ValueError("COOKIE_SECURE must be true in production (HTTPS)")
-        if self.COOKIE_SAMESITE == "none" and not self.COOKIE_SECURE:
-            raise ValueError("SameSite=None requires Secure cookies")
         if "*" in self.cors_origins_list:
             raise ValueError("Wildcard CORS origins are not allowed in production")
         return self
@@ -101,8 +91,13 @@ class Settings(BaseSettings):
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
 
     @property
-    def ai_configured(self) -> bool:
-        return bool(self.AI_API_KEY.strip())
+    def llm_configured(self) -> bool:
+        provider = self.LLM_PROVIDER.strip().lower()
+        if provider == "gemini":
+            return bool(self.GEMINI_API_KEY.strip())
+        if provider in {"openai", "openrouter"}:
+            return bool(self.LLM_API_KEY.strip())
+        return False
 
     @property
     def bootstrap_admin_configured(self) -> bool:

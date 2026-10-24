@@ -36,6 +36,7 @@ import { getApiError } from "@/lib/api/errors";
 import type { Customer, CustomerStatus, Paginated, UserOption } from "@/lib/api/types";
 import { CUSTOMER_STATUS_OPTIONS } from "@/lib/labels";
 import { usersApi } from "@/lib/api/users";
+import { preferencesApi } from "@/lib/api/preferences";
 import { cn, formatDate, formatRelative } from "@/lib/utils";
 
 const SORT_OPTIONS: Array<{ value: CustomerSort; label: string }> = [
@@ -76,6 +77,7 @@ function CustomersContent() {
   const debouncedSearch = useDebounce(search.trim(), 350);
   const [data, setData] = useState<Paginated<Customer> | null>(null);
   const [managers, setManagers] = useState<UserOption[]>([]);
+  const [healthWindow, setHealthWindow] = useState(5);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -85,10 +87,17 @@ function CustomersContent() {
   useEffect(() => {
     if (!isAdmin) return;
     usersApi
-      .options()
+      .managerOptions()
       .then(setManagers)
       .catch(() => setManagers([]));
   }, [isAdmin]);
+
+  useEffect(() => {
+    preferencesApi.list().then((preferences) => {
+      const setting = preferences.find((preference) => preference.key === "health_score_window");
+      if (setting) setHealthWindow(setting.value);
+    }).catch((err) => toast.error(getApiError(err)));
+  }, []);
 
   useEffect(() => {
     if (debouncedSearch !== getString("search")) {
@@ -321,7 +330,12 @@ function CustomersContent() {
                         <CustomerStatusBadge status={customer.status} />
                       </td>
                       <td className="w-36 px-4 py-3.5">
-                        <HealthIndicator score={customer.health_score} compact />
+                        <HealthIndicator
+                          score={customer.health_score}
+                          sampleSize={customer.health_sample_size}
+                          window={healthWindow}
+                          compact
+                        />
                       </td>
                       <td className="px-4 py-3.5">
                         {customer.assigned_managers.length > 0 ? (
@@ -389,7 +403,12 @@ function CustomersContent() {
                     <CustomerStatusBadge status={customer.status} />
                   </div>
                   <div className="mt-3 flex items-center justify-between gap-3">
-                    <HealthIndicator score={customer.health_score} compact />
+                    <HealthIndicator
+                      score={customer.health_score}
+                      sampleSize={customer.health_sample_size}
+                      window={healthWindow}
+                      compact
+                    />
                     <span className="text-[11px] text-ink-400">
                       {formatRelative(customer.updated_at)}
                     </span>

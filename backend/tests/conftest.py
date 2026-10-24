@@ -5,11 +5,12 @@ os.environ["APP_ENV"] = "test"
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ["JWT_SECRET_KEY"] = "test-only-jwt-secret-key-0123456789abcdef"
 os.environ["REDIS_URL"] = "redis://127.0.0.1:6399/15"
-os.environ["ALLOW_REGISTRATION"] = "true"
+os.environ["LLM_PROVIDER"] = "openai"
+os.environ["LLM_API_KEY"] = ""
+os.environ["GEMINI_API_KEY"] = ""
 
 from types import SimpleNamespace
 
-import fakeredis
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -18,12 +19,9 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, enable_sqlite_foreign_keys, get_db
 from app.main import app
-from app.modules.insights.api import get_insight_provider
 from app.modules.insights.schema import ActionItem, GeneratedInsight, RiskItem
 from app.modules.insights.models import Sentiment
 from app.modules.users.models import Role, User
-from app.utils import cache
-from app.utils.rate_limit import login_rate_limiter
 from app.utils.security import hash_password
 
 engine = create_engine(
@@ -43,6 +41,8 @@ class FakeInsightProvider:
 
     def __init__(self) -> None:
         self.error: Exception | None = None
+        self.failures: list[Exception] = []
+        self.raw_text: str | None = None
         self.calls = 0
         self.result = GeneratedInsight(
             summary="The customer is happy and adoption is strong.",
@@ -53,28 +53,20 @@ class FakeInsightProvider:
             risks=[RiskItem(description="Budget delayed", severity="medium")],
         )
 
-    def generate(self, **kwargs) -> GeneratedInsight:
+    def generate(self, system_prompt: str, user_prompt: str) -> str:
         self.calls += 1
+        if self.failures:
+            raise self.failures.pop(0)
         if self.error is not None:
             raise self.error
-        return self.result
+        return self.raw_text or self.result.model_dump_json()
 
 
 @pytest.fixture(autouse=True)
 def _fresh_state():
     Base.metadata.create_all(bind=engine)
-    login_rate_limiter._failures.clear()
-    fake_redis = fakeredis.FakeRedis(decode_responses=True)
-    cache.set_client(fake_redis)
     yield
-    fake_redis.flushall()
     Base.metadata.drop_all(bind=engine)
-
-
-@pytest.fixture
-def fake_redis():
-    return cache.get_client()
-
 
 @pytest.fixture
 def fake_provider() -> FakeInsightProvider:
@@ -91,7 +83,7 @@ def db():
 
 
 @pytest.fixture
-def client(fake_provider):
+def client(fake_provider, monkeypatch):
     def override_get_db():
         session = TestingSessionLocal()
         try:
@@ -100,7 +92,9 @@ def client(fake_provider):
             session.close()
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_insight_provider] = lambda: fake_provider
+    monkeypatch.setattr(
+        "app.modules.insights.service.get_llm_provider", lambda: fake_provider
+    )
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
@@ -147,12 +141,6 @@ def auth_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def csrf_headers(client: TestClient) -> dict[str, str]:
-    token = client.cookies.get("csrf_token")
-    assert token
-    return {"X-CSRF-Token": token}
-
-
 def customer_payload(**overrides) -> dict:
     payload = {
         "name": "Acme Corp",
@@ -161,7 +149,6 @@ def customer_payload(**overrides) -> dict:
         "contact_email": "jane@acme.example",
         "industry": "Software",
         "status": "active",
-        "health_score": 80,
     }
     payload.update(overrides)
     return payload
@@ -177,7 +164,8 @@ def interaction_payload(customer_id: int, **overrides) -> dict:
             "Adoption is strong. Jane asked for a proposal for 50 more seats by Friday. "
             "Risk: procurement approval may slip."
         ),
-        "participants": ["Jane Doe", "Dana Okafor"],
+        "participants": [],
+        "external_attendees": ["Jane Doe", "Dana Okafor"],
     }
     payload.update(overrides)
     return payload

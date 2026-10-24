@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 
 from app.modules.interactions.models import InteractionType
 from app.modules.users.schema import UserSummary
@@ -20,7 +20,9 @@ class InteractionCreateRequest(BaseModel):
     type: InteractionType = InteractionType.MEETING
     occurred_at: datetime
     notes: str | None = Field(default=None, max_length=50000)
-    participants: list[str] = Field(default_factory=list, max_length=50)
+    participants: list[StrictInt] = Field(default_factory=list, max_length=50)
+    external_attendees: list[str] = Field(default_factory=list, max_length=50)
+    generate_insight: bool = False
 
     @field_validator("title")
     @classmethod
@@ -37,14 +39,19 @@ class InteractionCreateRequest(BaseModel):
 
     @field_validator("participants")
     @classmethod
-    def clean_participants(cls, value: list[str]) -> list[str]:
-        cleaned = []
-        for participant in value:
-            participant = participant.strip()
-            if participant:
-                if len(participant) > 200:
-                    raise ValueError("Participant names must be at most 200 characters")
-                cleaned.append(participant)
+    def unique_participants(cls, value: list[int]) -> list[int]:
+        if any(participant <= 0 for participant in value):
+            raise ValueError("Participant IDs must be positive")
+        if len(value) != len(set(value)):
+            raise ValueError("Participant IDs must be unique")
+        return value
+
+    @field_validator("external_attendees")
+    @classmethod
+    def clean_external_attendees(cls, value: list[str]) -> list[str]:
+        cleaned = [attendee.strip() for attendee in value if attendee.strip()]
+        if any(len(attendee) > 200 for attendee in cleaned):
+            raise ValueError("External attendee names must be at most 200 characters")
         return cleaned
 
 
@@ -54,7 +61,8 @@ class InteractionUpdateRequest(BaseModel):
     type: InteractionType | None = None
     occurred_at: datetime | None = None
     notes: str | None = Field(default=None, max_length=50000)
-    participants: list[str] | None = Field(default=None, max_length=50)
+    participants: list[StrictInt] | None = Field(default=None, max_length=50)
+    external_attendees: list[str] | None = Field(default=None, max_length=50)
 
     @field_validator("title")
     @classmethod
@@ -75,16 +83,25 @@ class InteractionUpdateRequest(BaseModel):
 
     @field_validator("participants")
     @classmethod
-    def clean_participants(cls, value: list[str] | None) -> list[str] | None:
+    def unique_participants(cls, value: list[int] | None) -> list[int] | None:
         if value is None:
             return None
-        cleaned = []
-        for participant in value:
-            participant = participant.strip()
-            if participant:
-                if len(participant) > 200:
-                    raise ValueError("Participant names must be at most 200 characters")
-                cleaned.append(participant)
+        if any(participant <= 0 for participant in value):
+            raise ValueError("Participant IDs must be positive")
+        if len(value) != len(set(value)):
+            raise ValueError("Participant IDs must be unique")
+        return value
+
+    @field_validator("external_attendees")
+    @classmethod
+    def clean_external_attendees(
+        cls, value: list[str] | None
+    ) -> list[str] | None:
+        if value is None:
+            return None
+        cleaned = [attendee.strip() for attendee in value if attendee.strip()]
+        if any(len(attendee) > 200 for attendee in cleaned):
+            raise ValueError("External attendee names must be at most 200 characters")
         return cleaned
 
 
@@ -99,11 +116,19 @@ class InteractionResponse(BaseModel):
     occurred_at: datetime
     notes: str | None
     notes_version: int
-    participants: list[str]
+    ai_provider: str | None
+    ai_model: str | None
+    participants: list[int]
+    external_attendees: list[str]
     owner_id: int | None
     owner: UserSummary | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class InteractionCreateResponse(InteractionResponse):
+    insight_status: str | None = None
+    insight_error: str | None = None
 
 
 class InteractionListResponse(BaseModel):

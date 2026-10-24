@@ -37,7 +37,7 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
             without the noise.
           </h2>
           <p className="mt-5 max-w-md text-[15px] leading-7 text-ink-600">
-            E2M Client Insights brings customer accounts, meetings, AI analysis,
+            E2M Insights brings customer accounts, meetings, AI analysis,
             risks, and follow-up actions into one calm, focused workspace.
           </p>
 
@@ -52,7 +52,7 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
         </div>
 
         <div className="relative flex items-center justify-between border-t border-ink-200/80 pt-5 text-[11px] text-ink-500">
-          <span>© {new Date().getFullYear()} E2M Client Insights</span>
+          <span>© {new Date().getFullYear()} E2M Insights</span>
           <span className="inline-flex items-center gap-1">
             Private workspace <ArrowUpRight className="size-3" />
           </span>
@@ -63,7 +63,7 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
         <div className="flex items-center justify-between border-b border-ink-100 px-6 py-4 lg:hidden">
           <Logo href="/login" />
           <span className="text-[10px] font-medium tracking-[0.12em] text-ink-500 uppercase">
-            Client Insights
+            E2M Insights
           </span>
         </div>
         <div className="flex flex-1 items-center justify-center px-5 py-10 sm:px-8">

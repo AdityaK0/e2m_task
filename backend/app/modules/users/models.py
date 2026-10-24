@@ -28,6 +28,9 @@ class User(BaseModel):
         index=True,
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    must_change_password: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
     auto_assign_new_customers: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
@@ -36,11 +39,6 @@ class User(BaseModel):
     customer_assignments: Mapped[list["CustomerManager"]] = relationship(
         back_populates="manager",
         foreign_keys="CustomerManager.manager_id",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-    )
-    refresh_sessions: Mapped[list["RefreshSession"]] = relationship(
-        back_populates="user",
         cascade="all, delete-orphan",
         passive_deletes=True,
     )

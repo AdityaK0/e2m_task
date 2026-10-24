@@ -14,6 +14,7 @@ class UserResponse(BaseModel):
     email: EmailStr
     role: Role
     is_active: bool
+    must_change_password: bool
     auto_assign_new_customers: bool = False
     last_login_at: datetime | None = None
     created_at: datetime
@@ -33,14 +34,14 @@ class UserOption(BaseModel):
 
     id: int
     name: str
-    role: Role
 
 
 class UserCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     email: EmailStr
-    password: str = Field(min_length=8, max_length=128)
+    password: str | None = Field(default=None, min_length=8, max_length=72)
     role: Role = Role.MANAGER
+    auto_assign_new_customers: bool = False
 
     @field_validator("name")
     @classmethod
@@ -92,3 +93,8 @@ class UserListResponse(BaseModel):
 class MessageResponse(BaseModel):
     success: bool = True
     message: str
+
+
+class UserCredentialsResponse(BaseModel):
+    user: UserResponse
+    password: str

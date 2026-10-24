@@ -3,9 +3,9 @@ requires = ["setuptools>=75"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "e2m-client-insights"
+name = "e2m-insights"
 version = "0.1.0"
-description = "E2M Client Insights backend command line"
+description = "E2M Insights backend command line"
 
 [project.scripts]
 e2m = "app.cli:main"

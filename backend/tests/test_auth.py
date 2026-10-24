@@ -1,37 +1,65 @@
+from datetime import datetime, timedelta, timezone
+
+import jwt
+import pytest
 from sqlalchemy import select
 
-from app.modules.auth.models import RefreshSession
+from app.config import Settings, settings
 from app.modules.users.models import Role, User
 from app.utils.security import hash_password, verify_password
 
-from .conftest import auth_headers, csrf_headers, login
+from .conftest import auth_headers, login
 
 
-def test_register_creates_viewer_and_hashes_password(client, db):
+def test_production_rejects_example_jwt_secret():
+    with pytest.raises(ValueError, match="strong, unique JWT_SECRET_KEY"):
+        Settings(
+            APP_ENV="production",
+            JWT_SECRET_KEY="replace-this-with-a-unique-random-secret-of-at-least-32-characters",
+        )
+
+
+def tamper_token(token: str) -> str:
+    header, payload, signature = token.split(".")
+    replacement = "A" if signature[0] != "A" else "B"
+    return ".".join((header, payload, replacement + signature[1:]))
+
+
+def test_unauthenticated_register_is_rejected(client):
     response = client.post(
         "/api/v1/auth/register",
         json={
             "name": "  New User  ",
             "email": "NEW.USER@Example.com",
             "password": "SecurePass123!",
-            "password_confirm": "SecurePass123!",
+            "role": "manager",
+        },
+    )
+    assert response.status_code == 401
+
+
+def test_register_creates_user_for_admin(client, make_user, db, caplog):
+    admin = make_user("admin@example.com", role=Role.ADMIN)
+    token, _ = login(client, admin.email, admin.password)
+    response = client.post(
+        "/api/v1/auth/register",
+        headers=auth_headers(token),
+        json={
+            "name": "  New User  ",
+            "email": "NEW.USER@Example.com",
+            "password": "SecurePass123!",
+            "role": "manager",
         },
     )
     assert response.status_code == 201, response.text
     body = response.json()
-    assert body["access_token"]
-    assert body["expires_in"] == 15 * 60
-    assert body["user"] == {
-        "id": body["user"]["id"],
-        "name": "New User",
-        "email": "new.user@example.com",
-        "role": "manager",
-        "is_active": True,
-        "auto_assign_new_customers": False,
-        "last_login_at": None,
-        "created_at": body["user"]["created_at"],
-    }
-    assert "password" not in response.text.lower()
+    assert body["password"] == "SecurePass123!"
+    assert body["user"]["name"] == "New User"
+    assert body["user"]["email"] == "new.user@example.com"
+    assert body["user"]["role"] == "manager"
+    assert body["user"]["must_change_password"] is True
+    assert response.headers["cache-control"] == "no-store"
+    assert "SecurePass123!" not in caplog.text
 
     user = db.scalar(select(User).where(User.email == "new.user@example.com"))
     assert user is not None
@@ -39,34 +67,38 @@ def test_register_creates_viewer_and_hashes_password(client, db):
     assert user.password_hash != "SecurePass123!"
     assert verify_password("SecurePass123!", user.password_hash)
 
-    me = client.get("/api/v1/auth/me", headers=auth_headers(body["access_token"]))
-    assert me.status_code == 200
-    assert me.json()["data"]["email"] == "new.user@example.com"
 
-
-def test_register_duplicate_email_is_conflict(client):
+def test_register_duplicate_email_is_conflict(client, make_user):
+    admin = make_user("admin@example.com", role=Role.ADMIN)
+    token, _ = login(client, admin.email, admin.password)
     payload = {
         "name": "First",
         "email": "duplicate@example.com",
         "password": "SecurePass123!",
-        "password_confirm": "SecurePass123!",
+        "role": "manager",
     }
-    assert client.post("/api/v1/auth/register", json=payload).status_code == 201
+    headers = auth_headers(token)
+    assert client.post("/api/v1/auth/register", json=payload, headers=headers).status_code == 201
     response = client.post(
-        "/api/v1/auth/register", json={**payload, "email": "DUPLICATE@example.com"}
+        "/api/v1/auth/register",
+        json={**payload, "email": "DUPLICATE@example.com"},
+        headers=headers,
     )
     assert response.status_code == 409
     assert response.json()["error_code"] == "EMAIL_ALREADY_REGISTERED"
 
 
-def test_register_validation_errors_are_structured(client):
+def test_register_validation_errors_are_structured(client, make_user):
+    admin = make_user("admin@example.com", role=Role.ADMIN)
+    token, _ = login(client, admin.email, admin.password)
     response = client.post(
         "/api/v1/auth/register",
+        headers=auth_headers(token),
         json={
             "name": "",
             "email": "not-an-email",
             "password": "short",
-            "password_confirm": "different",
+            "role": "manager",
         },
     )
     assert response.status_code == 422
@@ -80,21 +112,21 @@ def test_register_validation_errors_are_structured(client):
     }
 
 
-def test_registration_can_be_disabled(client, monkeypatch):
-    from app.config import settings
-
-    monkeypatch.setattr(settings, "ALLOW_REGISTRATION", False)
+def test_non_admin_cannot_register(client, make_user):
+    manager = make_user("manager@example.com", role=Role.MANAGER)
+    token, _ = login(client, manager.email, manager.password)
     response = client.post(
         "/api/v1/auth/register",
+        headers=auth_headers(token),
         json={
-            "name": "Nope",
-            "email": "nope@example.com",
+            "name": "No access",
+            "email": "no-access@example.com",
             "password": "SecurePass123!",
-            "password_confirm": "SecurePass123!",
+            "role": "admin",
         },
     )
     assert response.status_code == 403
-    assert response.json()["error_code"] == "REGISTRATION_DISABLED"
+    assert response.json()["error_code"] == "FORBIDDEN"
 
 
 def test_login_rejects_bad_credentials_and_inactive_account(client, make_user, db):
@@ -128,24 +160,6 @@ def test_login_rejects_bad_credentials_and_inactive_account(client, make_user, d
     assert db.scalar(select(User).where(User.id == inactive.id)).is_active is False
 
 
-def test_login_rate_limit_returns_429(client, make_user):
-    user = make_user("limit@example.com")
-    for _ in range(5):
-        response = client.post(
-            "/api/v1/auth/login",
-            json={"email": user.email, "password": "WrongPass123!"},
-        )
-        assert response.status_code == 401
-
-    response = client.post(
-        "/api/v1/auth/login",
-        json={"email": user.email, "password": user.password},
-    )
-    assert response.status_code == 429
-    assert response.json()["error_code"] == "LOGIN_RATE_LIMITED"
-    assert response.json()["retry_after"] >= 1
-
-
 def test_me_requires_valid_token_and_active_user(client, make_user, db):
     user = make_user("me@example.com")
     token, _ = login(client, user.email, user.password)
@@ -155,7 +169,7 @@ def test_me_requires_valid_token_and_active_user(client, make_user, db):
         client.get(
             "/api/v1/auth/me", headers=auth_headers("not-a-token")
         ).json()["error_code"]
-        == "NOT_AUTHENTICATED"
+        == "INVALID_TOKEN"
     )
 
     user_row = db.get(User, user.id)
@@ -163,103 +177,167 @@ def test_me_requires_valid_token_and_active_user(client, make_user, db):
     db.commit()
     response = client.get("/api/v1/auth/me", headers=auth_headers(token))
     assert response.status_code == 401
+    assert response.json()["error_code"] == "ACCOUNT_DISABLED"
 
 
-def test_refresh_rotation_and_reuse_revokes_family(client, make_user, db):
-    user = make_user("rotate@example.com")
+def test_login_returns_access_and_fixed_lifetime_refresh_tokens(client, make_user):
+    user = make_user("tokens@example.com")
     login_response = client.post(
         "/api/v1/auth/login",
         json={"email": user.email, "password": user.password},
     )
     assert login_response.status_code == 200
-    first_refresh = login_response.cookies.get("refresh_token")
-    assert first_refresh
+    body = login_response.json()
+    assert body["token_type"] == "bearer"
+    assert body["expires_in"] == settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    assert body["user"]["must_change_password"] is True
+    assert login_response.headers["cache-control"] == "no-store"
+    assert "set-cookie" not in login_response.headers
+    assert set(body) == {"access_token", "refresh_token", "token_type", "expires_in", "user"}
 
-    csrf = csrf_headers(client)
-    rotated = client.post("/api/v1/auth/refresh", headers=csrf)
-    assert rotated.status_code == 200, rotated.text
-    second_refresh = rotated.cookies.get("refresh_token")
-    assert second_refresh and second_refresh != first_refresh
-    new_access = rotated.json()["access_token"]
-    assert client.get("/api/v1/auth/me", headers=auth_headers(new_access)).status_code == 200
-
-    # A request without the CSRF header is rejected before token rotation.
-    client.cookies.set("refresh_token", second_refresh, path="/api/v1/auth")
-    no_csrf = client.post("/api/v1/auth/refresh")
-    assert no_csrf.status_code == 403
-    assert no_csrf.json()["error_code"] == "CSRF_VALIDATION_FAILED"
-
-    # Replaying an already-rotated token is treated as compromise.
-    client.cookies.set("refresh_token", first_refresh, path="/api/v1/auth")
-    reused = client.post("/api/v1/auth/refresh", headers=csrf_headers(client))
-    assert reused.status_code == 401
-    assert reused.json()["error_code"] == "INVALID_REFRESH_TOKEN"
-
-    # The whole family, including the previously valid second token, is revoked.
-    client.cookies.set("refresh_token", second_refresh, path="/api/v1/auth")
-    after_reuse = client.post("/api/v1/auth/refresh", headers=csrf_headers(client))
-    assert after_reuse.status_code == 401
-
-    sessions = list(db.scalars(select(RefreshSession).where(RefreshSession.user_id == user.id)))
-    assert len(sessions) == 2
-    assert all(session.revoked_at is not None for session in sessions)
+    access_payload = jwt.decode(
+        body["access_token"], settings.JWT_SECRET_KEY, algorithms=["HS256"]
+    )
+    refresh_payload = jwt.decode(
+        body["refresh_token"], settings.JWT_SECRET_KEY, algorithms=["HS256"]
+    )
+    assert access_payload["sub"] == str(user.id)
+    assert access_payload["type"] == "access"
+    assert access_payload["exp"] - access_payload["iat"] == 15 * 60
+    assert refresh_payload["sub"] == str(user.id)
+    assert refresh_payload["type"] == "refresh"
+    assert refresh_payload["exp"] - refresh_payload["iat"] == 7 * 24 * 60 * 60
 
 
-def test_logout_revokes_session_and_clears_cookies(client, make_user, db):
-    user = make_user("logout@example.com")
-    login_response = client.post(
+def test_access_tokens_reject_missing_expired_tampered_and_wrong_type(client, make_user):
+    user = make_user("access@example.com")
+    tokens, _ = login(client, user.email, user.password)
+    login_body = tokens
+
+    assert client.get("/api/v1/auth/me", headers=auth_headers(login_body)).status_code == 200
+    missing = client.get("/api/v1/auth/me")
+    assert missing.status_code == 401
+    assert missing.json()["error_code"] == "NOT_AUTHENTICATED"
+
+    refresh_token = client.post(
         "/api/v1/auth/login",
         json={"email": user.email, "password": user.password},
+    ).json()["refresh_token"]
+    wrong_type = client.get("/api/v1/auth/me", headers=auth_headers(refresh_token))
+    assert wrong_type.status_code == 401
+    assert wrong_type.json()["error_code"] == "INVALID_TOKEN"
+
+    expired = jwt.encode(
+        {
+            "sub": str(user.id),
+            "type": "access",
+            "iat": datetime.now(timezone.utc) - timedelta(minutes=20),
+            "exp": datetime.now(timezone.utc) - timedelta(minutes=5),
+        },
+        settings.JWT_SECRET_KEY,
+        algorithm="HS256",
     )
-    refresh_token = login_response.cookies.get("refresh_token")
+    expired_response = client.get("/api/v1/auth/me", headers=auth_headers(expired))
+    assert expired_response.status_code == 401
+    assert expired_response.json()["error_code"] == "TOKEN_EXPIRED"
 
-    response = client.post("/api/v1/auth/logout", headers=csrf_headers(client))
-    assert response.status_code == 204
-    assert client.cookies.get("refresh_token") is None
-    assert client.cookies.get("csrf_token") is None
+    tampered = tamper_token(login_body)
+    tampered_response = client.get("/api/v1/auth/me", headers=auth_headers(tampered))
+    assert tampered_response.status_code == 401
+    assert tampered_response.json()["error_code"] == "INVALID_TOKEN"
 
-    client.cookies.set("refresh_token", refresh_token, path="/api/v1/auth")
-    client.cookies.set("csrf_token", "anything", path="/")
-    replay = client.post(
-        "/api/v1/auth/refresh", headers={"X-CSRF-Token": "anything"}
+
+def test_refresh_returns_only_access_and_does_not_rotate_or_extend(client, make_user):
+    user = make_user("refresh@example.com")
+    login_body = client.post(
+        "/api/v1/auth/login",
+        json={"email": user.email, "password": user.password},
+    ).json()
+    refresh_token = login_body["refresh_token"]
+    original_payload = jwt.decode(
+        refresh_token,
+        settings.JWT_SECRET_KEY,
+        algorithms=["HS256"],
+        options={"verify_exp": False},
     )
-    assert replay.status_code == 401
 
-    session = db.scalar(
-        select(RefreshSession).where(
-            RefreshSession.user_id == user.id,
-            RefreshSession.revoked_at.is_not(None),
-        )
+    first = client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token})
+    second = client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token})
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert set(first.json()) == {"access_token", "expires_in"}
+    assert first.json()["expires_in"] == settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    assert client.get(
+        "/api/v1/auth/me", headers=auth_headers(first.json()["access_token"])
+    ).status_code == 200
+
+    access_as_refresh = client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": login_body["access_token"]},
     )
-    assert session is not None
+    assert access_as_refresh.status_code == 401
+    assert access_as_refresh.json()["error_code"] == "INVALID_TOKEN"
+    missing_refresh = client.post("/api/v1/auth/refresh", json={})
+    assert missing_refresh.status_code == 401
+    assert missing_refresh.json()["error_code"] == "INVALID_TOKEN"
+    missing_body = client.post("/api/v1/auth/refresh")
+    assert missing_body.status_code == 401
+    assert missing_body.json()["error_code"] == "INVALID_TOKEN"
+
+    expired = jwt.encode(
+        {
+            "sub": str(user.id),
+            "type": "refresh",
+            "iat": datetime.now(timezone.utc) - timedelta(days=8),
+            "exp": datetime.now(timezone.utc) - timedelta(days=1),
+        },
+        settings.JWT_SECRET_KEY,
+        algorithm="HS256",
+    )
+    expired_response = client.post(
+        "/api/v1/auth/refresh", json={"refresh_token": expired}
+    )
+    assert expired_response.status_code == 401
+    assert expired_response.json()["error_code"] == "TOKEN_EXPIRED"
+    tampered = tamper_token(refresh_token)
+    invalid_response = client.post(
+        "/api/v1/auth/refresh", json={"refresh_token": tampered}
+    )
+    assert invalid_response.status_code == 401
+    assert invalid_response.json()["error_code"] == "INVALID_TOKEN"
+    assert original_payload["exp"] - original_payload["iat"] == 7 * 24 * 60 * 60
 
 
-def test_logout_without_refresh_cookie_is_idempotent(client):
-    response = client.post("/api/v1/auth/logout")
-    assert response.status_code == 204
+def test_inactive_user_immediately_loses_access_and_refresh(client, make_user, db):
+    user = make_user("disabled@example.com")
+    login_body = client.post(
+        "/api/v1/auth/login",
+        json={"email": user.email, "password": user.password},
+    ).json()
+    row = db.get(User, user.id)
+    row.is_active = False
+    db.commit()
 
-
-def test_logout_all_revokes_every_session(client, make_user, db):
-    user = make_user("logoutall@example.com")
-    login(client, user.email, user.password)
-    login(client, user.email, user.password)
-    token, _ = login(client, user.email, user.password)
-
-    response = client.post("/api/v1/auth/logout-all", headers=auth_headers(token))
-    assert response.status_code == 200
-    assert "Revoked 3 active session(s)." in response.json()["message"]
-    active = db.scalars(
-        select(RefreshSession).where(
-            RefreshSession.user_id == user.id,
-            RefreshSession.revoked_at.is_(None),
-        )
-    ).all()
-    assert active == []
+    access_response = client.get(
+        "/api/v1/auth/me", headers=auth_headers(login_body["access_token"])
+    )
+    assert access_response.status_code == 401
+    assert access_response.json()["error_code"] == "ACCOUNT_DISABLED"
+    refresh_response = client.post(
+        "/api/v1/auth/refresh", json={"refresh_token": login_body["refresh_token"]}
+    )
+    assert refresh_response.status_code == 401
+    assert refresh_response.json()["error_code"] == "ACCOUNT_DISABLED"
 
 
 def test_update_profile_and_change_password(client, make_user, db):
     user = make_user("profile@example.com")
-    token, _ = login(client, user.email, user.password)
+    login_response = client.post(
+        "/api/v1/auth/login",
+        json={"email": user.email, "password": user.password},
+    )
+    token = login_response.json()["access_token"]
+    refresh_token = login_response.json()["refresh_token"]
 
     response = client.patch(
         "/api/v1/auth/me",
@@ -283,10 +361,16 @@ def test_update_profile_and_change_password(client, make_user, db):
         headers=auth_headers(token),
     )
     assert changed.status_code == 200
+    db.refresh(db.get(User, user.id))
+    assert db.get(User, user.id).must_change_password is False
 
-    # Password change revokes refresh sessions; old password no longer works.
-    refresh = client.post("/api/v1/auth/refresh", headers=csrf_headers(client))
-    assert refresh.status_code == 401
+    # JWTs are not individually revocable; they remain usable until expiry.
+    assert client.get("/api/v1/auth/me", headers=auth_headers(token)).status_code == 200
+    refresh = client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": refresh_token},
+    )
+    assert refresh.status_code == 200
     old_login = client.post(
         "/api/v1/auth/login",
         json={"email": user.email, "password": user.password},
@@ -294,48 +378,8 @@ def test_update_profile_and_change_password(client, make_user, db):
     assert old_login.status_code == 401
     new_token, _ = login(client, user.email, "NewSecurePass123!")
     assert new_token
-
-
-def test_expired_refresh_session_is_rejected(client, make_user, db):
-    from app.utils.models import utc_now
-
-    user = make_user("expired@example.com")
-    login_response = client.post(
-        "/api/v1/auth/login",
-        json={"email": user.email, "password": user.password},
-    )
-    raw_refresh = login_response.cookies.get("refresh_token")
-    session = db.scalar(select(RefreshSession).where(RefreshSession.user_id == user.id))
-    session.expires_at = utc_now()
-    db.commit()
-
-    response = client.post("/api/v1/auth/refresh", headers=csrf_headers(client))
-    assert response.status_code == 401
-    assert response.json()["error_code"] == "SESSION_EXPIRED"
-
-
-def test_access_token_for_deleted_or_inactive_user_is_rejected(client, make_user, db):
-    user = make_user("gone@example.com")
-    token, _ = login(client, user.email, user.password)
-    row = db.get(User, user.id)
-    row.is_active = False
-    db.commit()
-    assert client.get("/api/v1/auth/me", headers=auth_headers(token)).status_code == 401
-
-
-def test_old_access_token_type_cannot_be_used_as_refresh(client, make_user):
-    from app.utils.security import create_access_token
-
-    user = make_user("type@example.com")
-    token, _ = create_access_token(str(user.id))
-    # The access token works for bearer auth but is not a refresh cookie.
-    assert client.get("/api/v1/auth/me", headers=auth_headers(token)).status_code == 200
-    response = client.post(
-        "/api/v1/auth/refresh",
-        headers={"X-CSRF-Token": "x"},
-        cookies={"refresh_token": token, "csrf_token": "x"},
-    )
-    assert response.status_code == 401
+    me = client.get("/api/v1/auth/me", headers=auth_headers(new_token))
+    assert me.json()["data"]["must_change_password"] is False
 
 
 def test_password_hash_helpers_are_compatible():

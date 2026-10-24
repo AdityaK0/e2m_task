@@ -1,4 +1,5 @@
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -7,11 +8,13 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import settings
+from app.database import SessionLocal
 from app.modules.auth.api import auth_router
 from app.modules.customers.api import customers_router
 from app.modules.dashboard.api import dashboard_router
 from app.modules.insights.api import insights_router
 from app.modules.interactions.api import interactions_router
+from app.modules.preferences.api import preferences_router
 from app.modules.users.api import users_router
 from app.utils.exceptions import AppException
 
@@ -19,32 +22,46 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
-logger = logging.getLogger("app")
+logger = logging.getLogger("e2m-insights")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    if settings.APP_ENV != "test":
+        from app.seed import bootstrap_admin
+
+        db = SessionLocal()
+        try:
+            bootstrap_admin(db)
+        finally:
+            db.close()
+    yield
 
 
 def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.APP_NAME,
-        description="E2M Client Insights: customers, meetings, AI insights, RBAC, Redis caching, and PostgreSQL-backed dashboards.",
+        description="E2M Insights: customers, meetings, AI insights, RBAC, and PostgreSQL-backed dashboards.",
         version="1.0.0",
         docs_url="/docs",
         redoc_url="/redoc",
         openapi_url="/openapi.json",
+        lifespan=lifespan,
     )
 
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins_list,
-        allow_credentials=True,
+        allow_credentials=False,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=[
-            "Authorization",
-            "Content-Type",
-            "X-CSRF-Token",
-            "X-Requested-With",
-        ],
+        allow_headers=["Authorization", "Content-Type"],
         expose_headers=["X-Request-ID"],
     )
+
+    @app.middleware("http")
+    async def security_headers(request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
 
     @app.exception_handler(AppException)
     async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
@@ -116,6 +133,7 @@ def create_app() -> FastAPI:
     app.include_router(interactions_router, prefix=settings.API_V1_PREFIX)
     app.include_router(insights_router, prefix=settings.API_V1_PREFIX)
     app.include_router(dashboard_router, prefix=settings.API_V1_PREFIX)
+    app.include_router(preferences_router, prefix=settings.API_V1_PREFIX)
 
     return app
 

@@ -6,7 +6,6 @@ from app.modules.customers.models import Customer, CustomerManager
 from app.modules.customers.repository import CustomerRepository
 from app.modules.customers.schema import CustomerCreateRequest, CustomerUpdateRequest
 from app.modules.users.models import Role, User
-from app.utils.cache import invalidate_customer_mutation
 from app.utils.exceptions import AppException
 from app.utils.pagination import pagination_meta
 
@@ -90,21 +89,12 @@ class CustomerService:
                 status_code=403,
                 error_code="FORBIDDEN",
             )
-        manager_ids = set(data.manager_ids)
-        self._validate_managers(manager_ids)
+        self._validate_managers(set(data.manager_ids))
         customer = Customer(**data.model_dump(exclude={"manager_ids"}))
         self.db.add(customer)
         try:
             self.db.flush()
             # Assignment and opt-in auto-assignment share the customer transaction.
-            auto_manager_query = select(User.id).where(
-                User.role == Role.MANAGER,
-                User.is_active.is_(True),
-                User.auto_assign_new_customers.is_(True),
-            )
-            manager_ids.update(self.db.scalars(auto_manager_query).all())
-            if actor.role == Role.MANAGER:
-                manager_ids.add(actor.id)
             explicit_manager_ids = set(data.manager_ids)
             if actor.role == Role.MANAGER:
                 explicit_manager_ids.add(actor.id)
@@ -114,7 +104,6 @@ class CustomerService:
         except Exception:
             self.db.rollback()
             raise
-        invalidate_customer_mutation(manager_ids)
         return self._loaded_customer(customer.id)
 
     def update(self, customer_id: int, data: CustomerUpdateRequest, actor: User) -> Customer:
@@ -126,7 +115,6 @@ class CustomerService:
                 status_code=422,
                 error_code="VALIDATION_ERROR",
             )
-        manager_ids = self._manager_ids(customer.id)
         for key, value in payload.items():
             setattr(customer, key, value)
         try:
@@ -134,12 +122,10 @@ class CustomerService:
         except Exception:
             self.db.rollback()
             raise
-        invalidate_customer_mutation(manager_ids)
         return self._loaded_customer(customer.id)
 
     def delete(self, customer_id: int, actor: User) -> None:
         customer = self.get_or_404(customer_id, actor)
-        manager_ids = self._manager_ids(customer.id)
         from app.utils.models import utc_now
 
         customer.deleted_at = utc_now()
@@ -148,7 +134,6 @@ class CustomerService:
         except Exception:
             self.db.rollback()
             raise
-        invalidate_customer_mutation(manager_ids)
 
     def managers(self, customer_id: int, actor: User) -> list[User]:
         self.get_or_404(customer_id, actor)
@@ -167,7 +152,6 @@ class CustomerService:
         assigned = self._insert_assignments(customer.id, {manager_id}, actor.id)
         if assigned:
             self.db.commit()
-            invalidate_customer_mutation({manager_id})
         return {"assigned": assigned, "skipped": int(not assigned)}
 
     def unassign_manager(self, customer_id: int, manager_id: int, actor: User) -> dict:
@@ -181,7 +165,6 @@ class CustomerService:
         if assignment is not None:
             self.db.delete(assignment)
             self.db.commit()
-            invalidate_customer_mutation({manager_id})
         return {"unassigned": int(assignment is not None), "skipped": int(assignment is None)}
 
     def bulk_assignment(
@@ -234,7 +217,6 @@ class CustomerService:
 
         if changed:
             self.db.commit()
-            invalidate_customer_mutation({manager_id})
         else:
             self.db.rollback()
         return {
@@ -310,15 +292,6 @@ class CustomerService:
             .on_conflict_do_nothing(
                 index_elements=[CustomerManager.customer_id, CustomerManager.manager_id]
             )
-        )
-
-    def _manager_ids(self, customer_id: int) -> set[int]:
-        return set(
-            self.db.scalars(
-                select(CustomerManager.manager_id).where(
-                    CustomerManager.customer_id == customer_id
-                )
-            ).all()
         )
 
     def _loaded_customer(self, customer_id: int) -> Customer:

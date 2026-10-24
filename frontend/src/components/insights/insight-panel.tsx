@@ -38,6 +38,7 @@ function severityTone(severity: string | null): string {
 
 export function InsightPanel({
   insight,
+  interactionOwner,
   loading,
   generating,
   configured,
@@ -46,6 +47,7 @@ export function InsightPanel({
   onGenerate,
 }: {
   insight: MeetingInsight | null;
+  interactionOwner: string | null;
   loading: boolean;
   generating: boolean;
   configured: boolean | null;
@@ -224,8 +226,8 @@ export function InsightPanel({
                           </p>
                           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-ink-500">
                             <span>
-                              {item.owner
-                                ? `Owner: ${item.owner}`
+                              {item.owner || interactionOwner
+                                ? `Owner: ${item.owner || interactionOwner}`
                                 : "Owner: unassigned"}
                             </span>
                             {item.due_date ? (

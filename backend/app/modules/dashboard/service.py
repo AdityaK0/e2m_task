@@ -63,6 +63,12 @@ class DashboardService:
         total_customers = customer_count()
         active_customers = customer_count(Customer.status == CustomerStatus.ACTIVE)
         at_risk_customers = customer_count(Customer.status == CustomerStatus.AT_RISK)
+        average_health_score = customer_scalar(
+            select(func.avg(Customer.health_score)).where(
+                Customer.deleted_at.is_(None),
+                Customer.health_score.is_not(None),
+            )
+        )
         prospect_customers = customer_count(Customer.status == CustomerStatus.PROSPECT)
         churned_customers = customer_count(Customer.status == CustomerStatus.CHURNED)
         total_interactions = interaction_count()
@@ -151,6 +157,7 @@ class DashboardService:
                 "name": customer.name,
                 "status": customer.status,
                 "health_score": customer.health_score,
+                "health_sample_size": customer.health_sample_size,
                 "assigned_manager": (
                     customer.manager_assignments[0].manager.name
                     if customer.manager_assignments else None
@@ -163,6 +170,11 @@ class DashboardService:
             "total_customers": total_customers,
             "active_customers": active_customers,
             "at_risk_customers": at_risk_customers,
+            "average_health_score": (
+                round(float(average_health_score), 1)
+                if average_health_score is not None
+                else None
+            ),
             "prospect_customers": prospect_customers,
             "churned_customers": churned_customers,
             "total_interactions": total_interactions,

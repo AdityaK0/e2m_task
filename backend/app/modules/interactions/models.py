@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, JSON, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, JSON, String, Text, text
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -45,10 +45,15 @@ class Interaction(BaseModel, SoftDeleteMixin):
         DateTime(timezone=True), nullable=False, index=True
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    ai_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
     notes_version: Mapped[int] = mapped_column(
         Integer, nullable=False, default=1, server_default="1"
     )
-    participants: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    participants: Mapped[list[int]] = mapped_column(JSON, nullable=False, default=list)
+    external_attendees: Mapped[list[str]] = mapped_column(
+        JSON, nullable=False, default=list, server_default=text("'[]'")
+    )
     owner_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )

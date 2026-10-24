@@ -1,14 +1,11 @@
-"""Explicit bootstrap / demo-data command.
+"""Admin bootstrap and demo-data helpers.
 
-Usage (inside backend container or venv):
-    python -m app.seed
-
-Requires migrations to have been applied. Creates the initial administrator
-from BOOTSTRAP_ADMIN_* only when those variables are set. Demo customers and
-interactions are created only when SEED_DEMO_DATA=true. Demo insights are
-never fabricated; generate them through the real AI provider.
+The demo-data helpers are used directly by tests and do not run automatically.
+Admin bootstrap runs separately when the API starts. Schema must be migrated
+before either operation.
 """
 
+import logging
 import sys
 from datetime import datetime, timedelta, timezone
 
@@ -16,8 +13,6 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.config import settings
-from app.database import SessionLocal
-from app.modules.auth import models as auth_models  # noqa: F401
 from app.modules.customers.models import Customer, CustomerManager, CustomerStatus
 from app.modules.insights import models as insight_models  # noqa: F401
 from app.modules.interactions.models import Interaction, InteractionType
@@ -26,9 +21,18 @@ from app.utils.exceptions import AppException
 from app.utils.security import hash_password, normalize_email, validate_password
 
 DEMO_PASSWORD = "DemoPass123!"
+logger = logging.getLogger("e2m-insights.seed")
 
 
-def _get_or_create_user(db, *, email: str, name: str, password: str, role: Role) -> User:
+def _get_or_create_user(
+    db,
+    *,
+    email: str,
+    name: str,
+    password: str,
+    role: Role,
+    must_change_password: bool = False,
+) -> User:
     email = normalize_email(email)
     user = db.scalar(select(User).where(User.email == email))
     if user is not None:
@@ -51,6 +55,7 @@ def _get_or_create_user(db, *, email: str, name: str, password: str, role: Role)
         password_hash=hash_password(password),
         role=role,
         is_active=True,
+        must_change_password=must_change_password,
     )
     db.add(user)
     db.commit()
@@ -60,27 +65,43 @@ def _get_or_create_user(db, *, email: str, name: str, password: str, role: Role)
 
 
 def bootstrap_admin(db) -> User | None:
+    existing_admin = db.scalar(select(User).where(User.role == Role.ADMIN).limit(1))
+    if existing_admin is not None:
+        return existing_admin
     if not settings.bootstrap_admin_configured:
-        print(
-            "BOOTSTRAP_ADMIN_EMAIL / BOOTSTRAP_ADMIN_PASSWORD not set; "
-            "skipping administrator bootstrap."
+        logger.warning(
+            "No administrator exists and bootstrap admin credentials are not configured"
         )
         return None
+    email = normalize_email(settings.BOOTSTRAP_ADMIN_EMAIL)
+    if db.scalar(select(User.id).where(User.email == email)) is not None:
+        raise AppException(
+            "Bootstrap admin email is already used by a non-admin account",
+            status_code=409,
+            error_code="EMAIL_ALREADY_REGISTERED",
+        )
     try:
         return _get_or_create_user(
             db,
-            email=settings.BOOTSTRAP_ADMIN_EMAIL,
+            email=email,
             name=settings.BOOTSTRAP_ADMIN_NAME,
             password=settings.BOOTSTRAP_ADMIN_PASSWORD,
             role=Role.ADMIN,
+            must_change_password=True,
         )
+    except IntegrityError:
+        db.rollback()
+        existing_admin = db.scalar(select(User).where(User.role == Role.ADMIN).limit(1))
+        if existing_admin is not None:
+            return existing_admin
+        raise
     except AppException as exc:
         print(f"Admin bootstrap failed: {exc.message}")
         sys.exit(1)
 
 
 def create_admin(db, *, email: str, password: str, name: str) -> User:
-    """Create a new administrator without changing an existing account."""
+    """Create an administrator with the password supplied by its creator."""
     normalized_email = normalize_email(email)
     if db.scalar(select(User.id).where(User.email == normalized_email)) is not None:
         raise AppException(
@@ -96,6 +117,7 @@ def create_admin(db, *, email: str, password: str, name: str) -> User:
             name=name,
             password=password,
             role=Role.ADMIN,
+            must_change_password=False,
         )
     except IntegrityError as exc:
         db.rollback()
@@ -123,7 +145,6 @@ def seed_demo(db, csm: User, viewer: User) -> None:
             industry="Data & Analytics",
             website="https://northwind.example",
             status=CustomerStatus.ACTIVE,
-            health_score=84,
             notes="Expansion conversation in progress for the EU data warehouse add-on.",
         ),
         Customer(
@@ -135,7 +156,6 @@ def seed_demo(db, csm: User, viewer: User) -> None:
             industry="Manufacturing",
             website="https://acme-robotics.example",
             status=CustomerStatus.AT_RISK,
-            health_score=38,
             notes="Two critical tickets open; onboarding was delayed by SSO issues.",
         ),
         Customer(
@@ -147,7 +167,6 @@ def seed_demo(db, csm: User, viewer: User) -> None:
             industry="Healthcare",
             website="https://lumenhealth.example",
             status=CustomerStatus.ONBOARDING,
-            health_score=66,
             notes="Security review pending before production rollout.",
         ),
         Customer(
@@ -157,7 +176,6 @@ def seed_demo(db, csm: User, viewer: User) -> None:
             contact_email="sofia.alvarez@orbitcommerce.example",
             industry="Retail",
             status=CustomerStatus.PROSPECT,
-            health_score=None,
             notes="Inbound from webinar; discovery call not yet booked.",
         ),
     ]
@@ -181,7 +199,8 @@ def seed_demo(db, csm: User, viewer: User) -> None:
                 "a security questionnaire. Success criteria: 90% adoption in Q4. Risk: budget "
                 "approval is delayed until the finance committee meets in three weeks."
             ),
-            participants=["Elena Fischer", "Dana Okafor"],
+            participants=[csm.id],
+            external_attendees=["Elena Fischer"],
             owner_id=csm.id,
         ),
         Interaction(
@@ -195,7 +214,8 @@ def seed_demo(db, csm: User, viewer: User) -> None:
                 "provide a recovery runbook. They are evaluating a competitor and need a written "
                 "remediation plan plus an executive apology by tomorrow. Health score reduced."
             ),
-            participants=["Marcus Lee", "Dana Okafor", "Alex Chen"],
+            participants=[csm.id],
+            external_attendees=["Marcus Lee", "Alex Chen"],
             owner_id=csm.id,
         ),
         Interaction(
@@ -208,7 +228,8 @@ def seed_demo(db, csm: User, viewer: User) -> None:
                 "data residency confirmation, and a completed DPIA before go-live. Priya will "
                 "send the DPIA template Monday. We committed to sharing the SOC 2 report this week."
             ),
-            participants=["Priya Raman", "Dana Okafor"],
+            participants=[csm.id],
+            external_attendees=["Priya Raman"],
             owner_id=csm.id,
         ),
         Interaction(
@@ -221,7 +242,8 @@ def seed_demo(db, csm: User, viewer: User) -> None:
                 "confirmed receipt and will route it to procurement. No decision expected before "
                 "the finance committee meeting."
             ),
-            participants=["Elena Fischer", "Dana Okafor"],
+            participants=[csm.id],
+            external_attendees=["Elena Fischer"],
             owner_id=csm.id,
         ),
     ]
@@ -238,6 +260,7 @@ def create_demo_seed(db) -> None:
         name="Dana Okafor",
         password=DEMO_PASSWORD,
         role=Role.MANAGER,
+        must_change_password=False,
     )
     viewer = _get_or_create_user(
         db,
@@ -245,25 +268,6 @@ def create_demo_seed(db) -> None:
         name="Sam Rivera",
         password=DEMO_PASSWORD,
         role=Role.MANAGER,
+        must_change_password=False,
     )
     seed_demo(db, csm, viewer)
-
-
-def main() -> None:
-    db = SessionLocal()
-    try:
-        admin = bootstrap_admin(db)
-        if settings.SEED_DEMO_DATA:
-            create_demo_seed(db)
-            print(f"Demo users use password: {DEMO_PASSWORD} (local demo only)")
-        if admin is None and not settings.SEED_DEMO_DATA:
-            print(
-                "Nothing to do. Set BOOTSTRAP_ADMIN_EMAIL and "
-                "BOOTSTRAP_ADMIN_PASSWORD, or SEED_DEMO_DATA=true."
-            )
-    finally:
-        db.close()
-
-
-if __name__ == "__main__":
-    main()

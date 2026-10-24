@@ -24,6 +24,7 @@ export interface User {
   email: string;
   role: Role;
   is_active: boolean;
+  must_change_password: boolean;
   auto_assign_new_customers: boolean;
   last_login_at: string | null;
   created_at: string;
@@ -39,7 +40,6 @@ export interface UserSummary {
 export interface UserOption {
   id: number;
   name: string;
-  role: Role;
 }
 
 export interface Customer {
@@ -53,6 +53,7 @@ export interface Customer {
   website: string | null;
   status: CustomerStatus;
   health_score: number | null;
+  health_sample_size: number;
   assigned_managers: UserSummary[];
   notes: string | null;
   created_at: string;
@@ -74,7 +75,10 @@ export interface Interaction {
   occurred_at: string;
   notes: string | null;
   notes_version: number;
-  participants: string[];
+  ai_provider: string | null;
+  ai_model: string | null;
+  participants: number[];
+  external_attendees: string[];
   owner_id: number | null;
   owner: UserSummary | null;
   created_at: string;
@@ -130,9 +134,20 @@ export interface UserList extends Paginated<User> {}
 
 export interface AuthResponse {
   access_token: string;
+  refresh_token: string;
   token_type: "bearer";
   expires_in: number;
   user: User;
+}
+
+export interface RefreshResponse {
+  access_token: string;
+  expires_in: number;
+}
+
+export interface UserCredentials {
+  user: Pick<User, "email">;
+  password: string;
 }
 
 export interface MeResponse {
@@ -179,6 +194,7 @@ export interface AtRiskCustomer {
   name: string;
   status: CustomerStatus;
   health_score: number | null;
+  health_sample_size: number;
   assigned_manager: string | null | undefined;
 }
 
@@ -186,6 +202,7 @@ export interface DashboardSummary {
   total_customers: number;
   active_customers: number;
   at_risk_customers: number;
+  average_health_score: number | null;
   prospect_customers: number;
   churned_customers: number;
   total_interactions: number;
@@ -199,6 +216,15 @@ export interface DashboardSummary {
   recent_interactions: RecentInteraction[];
   at_risk_list: AtRiskCustomer[];
   insights_needing_review: number;
+}
+
+export interface Preference {
+  key: string;
+  value: number;
+  default: number;
+  min: number | null;
+  max: number | null;
+  description: string;
 }
 
 export interface InsightConfig {

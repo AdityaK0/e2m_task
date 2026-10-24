@@ -18,6 +18,7 @@ import { Suspense, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { InteractionForm } from "@/components/interactions/interaction-form";
+import { ParticipantChips } from "@/components/interactions/participant-chips";
 import { Alert } from "@/components/ui/alert";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,7 @@ import { usePermissions } from "@/features/auth/hooks";
 import { useDebounce } from "@/hooks/use-debounce";
 import { useQueryState } from "@/hooks/use-query-state";
 import { customersApi } from "@/lib/api/customers";
+import { usersApi } from "@/lib/api/users";
 import { getApiError } from "@/lib/api/errors";
 import {
   interactionsApi,
@@ -43,6 +45,7 @@ import type {
   Interaction,
   InteractionType,
   Paginated,
+  UserOption,
 } from "@/lib/api/types";
 import { INTERACTION_TYPE_OPTIONS } from "@/lib/labels";
 import { cn, formatDateTime } from "@/lib/utils";
@@ -102,6 +105,7 @@ function InteractionsContent() {
   const debouncedSearch = useDebounce(search.trim(), 350);
   const [data, setData] = useState<Paginated<Interaction> | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [participantUsers, setParticipantUsers] = useState<UserOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -115,6 +119,12 @@ function InteractionsContent() {
       .list({ page_size: 100, sort: "name" })
       .then((result) => setCustomers(result.items))
       .catch(() => setCustomers([]));
+  }, []);
+
+  useEffect(() => {
+    usersApi.options().then(setParticipantUsers).catch((error) => {
+      toast.error(getApiError(error));
+    });
   }, []);
 
   useEffect(() => {
@@ -442,6 +452,16 @@ function InteractionsContent() {
                         <p className="mt-1.5 line-clamp-1 text-xs text-ink-400">
                           {interaction.notes}
                         </p>
+                      ) : null}
+                      {interaction.participants.length > 0 ||
+                      interaction.external_attendees.length > 0 ? (
+                        <div className="mt-2">
+                          <ParticipantChips
+                            participants={interaction.participants}
+                            externalAttendees={interaction.external_attendees}
+                            users={participantUsers}
+                          />
+                        </div>
                       ) : null}
                     </div>
                     <div className="flex shrink-0 items-center gap-1">

@@ -5,16 +5,16 @@ import { Providers } from "@/components/providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  applicationName: "E2M Client Insights",
+  applicationName: "E2M Insights",
   title: {
-    default: "E2M Client Insights",
+    default: "E2M Insights",
     template: "%s · E2M Insights",
   },
   description:
-    "E2M Client Insights — Customer Success & AI Insights. Manage customer accounts, meetings, risks, and follow-up actions in one focused workspace.",
+    "E2M Insights — Customer Success & AI Insights. Manage customer accounts, meetings, risks, and follow-up actions in one focused workspace.",
   keywords: [
     "customer success",
-    "client insights",
+    "customer insights",
     "meeting intelligence",
     "account management",
     "E2M",
@@ -25,7 +25,7 @@ export const metadata: Metadata = {
     statusBarStyle: "default",
   },
   openGraph: {
-    title: "E2M Client Insights",
+    title: "E2M Insights",
     description: "Customer Success & AI Insights",
     type: "website",
   },

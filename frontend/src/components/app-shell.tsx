@@ -7,6 +7,7 @@ import {
   Lightbulb,
   LogOut,
   Menu,
+  Settings2,
   ShieldCheck,
   UserRound,
   Users,
@@ -124,6 +125,13 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
               active={isActive(pathname, "/admin/users")}
               onNavigate={onNavigate}
             />
+            <NavLink
+              href="/settings"
+              label="Settings"
+              icon={Settings2}
+              active={isActive(pathname, "/settings")}
+              onNavigate={onNavigate}
+            />
           </>
         ) : null}
       </nav>
@@ -159,7 +167,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           </div>
         </div>
         <p className="mt-3 px-1 text-[10px] leading-4 text-ink-400">
-          E2M Client Insights
+          E2M Insights
           <br />
           Customer Success &amp; AI Insights
         </p>
@@ -193,13 +201,20 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [pathname]);
 
   useEffect(() => {
-    if (initialized && status !== "authenticated") {
+    if (initialized && status === "authenticated" && user?.must_change_password) {
+      router.replace("/change-password");
+    } else if (initialized && status !== "authenticated") {
       const next = encodeURIComponent(pathname || "/dashboard");
       router.replace(`/login?next=${next}`);
     }
-  }, [initialized, status, pathname, router]);
+  }, [initialized, status, user, pathname, router]);
 
-  if (!initialized || status === "loading" || !user) {
+  if (
+    !initialized ||
+    status === "loading" ||
+    !user ||
+    user.must_change_password
+  ) {
     return <Splash />;
   }
 
@@ -252,7 +267,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </main>
 
         <footer className="mx-auto flex w-full max-w-[1440px] flex-wrap items-center justify-between gap-2 px-4 pb-6 text-[11px] text-ink-400 sm:px-6 lg:px-9">
-          <span>E2M Client Insights</span>
+          <span>E2M Insights</span>
           <Link
             href="/profile"
             className="inline-flex items-center gap-1 transition-colors hover:text-ink-800"

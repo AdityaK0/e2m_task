@@ -69,6 +69,15 @@ class UserRepository:
             ).all()
         )
 
+    def list_active_options(self) -> list[User]:
+        return list(
+            self.db.scalars(
+                select(User)
+                .where(User.is_active.is_(True))
+                .order_by(User.created_at.desc(), User.id.desc())
+            ).all()
+        )
+
     def count_active_admins(self, exclude_user_id: int | None = None) -> int:
         q = select(func.count()).select_from(User).where(
             User.role == Role.ADMIN, User.is_active.is_(True)

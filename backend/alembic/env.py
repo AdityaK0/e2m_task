@@ -7,10 +7,10 @@ from app.config import settings
 from app.database import Base
 
 # Import every model module so Base.metadata is complete for autogenerate.
-from app.modules.auth import models as auth_models  # noqa: F401
 from app.modules.customers import models as customer_models  # noqa: F401
 from app.modules.insights import models as insight_models  # noqa: F401
 from app.modules.interactions import models as interaction_models  # noqa: F401
+from app.modules.preferences import models as preference_models  # noqa: F401
 from app.modules.users import models as user_models  # noqa: F401
 
 config = context.config

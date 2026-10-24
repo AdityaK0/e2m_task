@@ -4,8 +4,9 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy import func, select
 
+from app.modules.customers.models import Customer
 from app.modules.insights.models import InsightStatus, MeetingInsight, Sentiment
-from app.modules.insights.provider import AIProviderError, AINotConfiguredError
+from app.modules.insights.providers.base import LLMProviderError
 from app.modules.insights.schema import GeneratedInsight
 from app.modules.users.models import Role
 from app.utils.models import utc_now
@@ -56,6 +57,11 @@ def test_generate_get_and_idempotency(client, make_user, fake_provider, db):
     assert body["risks"][0]["severity"] == "medium"
     assert body["provider"] == "fake"
     assert body["model"] == "fake-model"
+    saved_interaction = client.get(
+        f"/api/v1/interactions/{interaction['id']}", headers=auth_headers(token)
+    ).json()
+    assert saved_interaction["ai_provider"] == "fake"
+    assert saved_interaction["ai_model"] == "fake-model"
     assert body["generation_version"] == 1
     assert body["notes_version"] == interaction["notes_version"]
     assert body["is_stale"] is False
@@ -120,6 +126,29 @@ def test_insight_permissions_and_config(client, make_user):
     assert config.json() == {"configured": False, "provider": None, "model": None}
 
 
+def test_failed_regeneration_does_not_change_customer_health(
+    client, make_user, fake_provider, db
+):
+    _, token, interaction = _setup(client, make_user)
+    url = f"/api/v1/interactions/{interaction['id']}/insights"
+    generated = client.post(url, headers=auth_headers(token))
+    assert generated.status_code == 200
+
+    customer = db.scalar(
+        select(Customer).where(Customer.id == interaction["customer_id"])
+    )
+    assert customer is not None
+    saved_score = customer.health_score
+    saved_sample_size = customer.health_sample_size
+    fake_provider.error = LLMProviderError("provider unavailable")
+
+    failed = client.post(url, json={"force": True}, headers=auth_headers(token))
+    assert failed.status_code == 502
+    db.refresh(customer)
+    assert customer.health_score == saved_score
+    assert customer.health_sample_size == saved_sample_size
+
+
 def test_insight_requires_notes(client, make_user):
     _, token, interaction = _setup(client, make_user, notes=None)
     response = client.post(
@@ -136,13 +165,14 @@ def test_insight_requires_notes(client, make_user):
     assert missing.json()["error_code"] == "INTERACTION_NOT_FOUND"
 
 
-def test_provider_failure_marks_failed_and_retry_succeeds(
-    client, make_user, fake_provider, db
+def test_provider_failure_marks_failed_and_regenerate_succeeds(
+    client, make_user, fake_provider, db, monkeypatch
 ):
+    monkeypatch.setattr("app.config.settings.AI_MAX_RETRIES", 0)
     _, token, interaction = _setup(client, make_user)
     url = f"/api/v1/interactions/{interaction['id']}/insights"
 
-    fake_provider.error = AIProviderError("upstream timeout")
+    fake_provider.error = LLMProviderError("upstream timeout")
     failed = client.post(url, headers=auth_headers(token))
     assert failed.status_code == 502
     assert failed.json()["error_code"] == "AI_GENERATION_FAILED"
@@ -154,7 +184,10 @@ def test_provider_failure_marks_failed_and_retry_succeeds(
     assert stored.json()["summary"] is None
 
     fake_provider.error = None
-    retried = client.post(url, headers=auth_headers(token))
+    retried = client.post(
+        f"/api/v1/interactions/{interaction['id']}/regenerate-insights",
+        headers=auth_headers(token),
+    )
     assert retried.status_code == 200
     assert retried.json()["status"] == "completed"
     assert retried.json()["error_message"] is None
@@ -165,9 +198,13 @@ def test_provider_failure_marks_failed_and_retry_succeeds(
     assert row.status == InsightStatus.COMPLETED
 
 
-def test_not_configured_provider_returns_503(client, make_user, fake_provider):
+def test_not_configured_provider_saves_failed_insight(client, make_user, monkeypatch):
+    from app.modules.insights.providers.factory import get_llm_provider
+
+    monkeypatch.setattr("app.modules.insights.service.get_llm_provider", get_llm_provider)
+    monkeypatch.setattr("app.config.settings.LLM_PROVIDER", "openai")
+    monkeypatch.setattr("app.config.settings.LLM_API_KEY", "")
     _, token, interaction = _setup(client, make_user)
-    fake_provider.error = AINotConfiguredError("no key")
 
     response = client.post(
         f"/api/v1/interactions/{interaction['id']}/insights",
@@ -175,12 +212,65 @@ def test_not_configured_provider_returns_503(client, make_user, fake_provider):
     )
     assert response.status_code == 503
     assert response.json()["error_code"] == "AI_NOT_CONFIGURED"
+    saved_interaction = client.get(
+        f"/api/v1/interactions/{interaction['id']}", headers=auth_headers(token)
+    )
+    assert saved_interaction.status_code == 200
+    assert saved_interaction.json()["notes"] == interaction["notes"]
 
     stored = client.get(
         f"/api/v1/interactions/{interaction['id']}/insights",
         headers=auth_headers(token),
     )
     assert stored.json()["status"] == "failed"
+    assert stored.json()["error_message"] == "AI provider not configured"
+
+
+def test_fenced_json_is_accepted(client, make_user, fake_provider):
+    _, token, interaction = _setup(client, make_user)
+    fake_provider.raw_text = f"```json\n{fake_provider.result.model_dump_json()}\n```"
+
+    response = client.post(
+        f"/api/v1/interactions/{interaction['id']}/insights",
+        headers=auth_headers(token),
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "completed"
+
+
+def test_provider_retry_then_success(client, make_user, fake_provider, monkeypatch):
+    monkeypatch.setattr("app.config.settings.AI_MAX_RETRIES", 1)
+    fake_provider.failures.append(LLMProviderError("temporary timeout"))
+    _, token, interaction = _setup(client, make_user)
+
+    response = client.post(
+        f"/api/v1/interactions/{interaction['id']}/insights",
+        headers=auth_headers(token),
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "completed"
+    assert fake_provider.calls == 2
+
+
+def test_invalid_json_marks_insight_failed(client, make_user, fake_provider, monkeypatch):
+    monkeypatch.setattr("app.config.settings.AI_MAX_RETRIES", 0)
+    _, token, interaction = _setup(client, make_user)
+    fake_provider.raw_text = "not valid json"
+
+    response = client.post(
+        f"/api/v1/interactions/{interaction['id']}/insights",
+        headers=auth_headers(token),
+    )
+
+    assert response.status_code == 502
+    stored = client.get(
+        f"/api/v1/interactions/{interaction['id']}/insights",
+        headers=auth_headers(token),
+    )
+    assert stored.json()["status"] == "failed"
+    assert stored.json()["error_message"] == "AI generation failed. Please retry."
 
 
 def test_running_insight_conflicts_and_recent_window(client, make_user, db, fake_provider):
@@ -207,20 +297,6 @@ def test_running_insight_conflicts_and_recent_window(client, make_user, db, fake
     recovered = client.post(url, headers=auth_headers(token))
     assert recovered.status_code == 200
     assert recovered.json()["status"] == "completed"
-
-
-def test_lock_contention_returns_conflict(client, make_user, monkeypatch):
-    _, token, interaction = _setup(client, make_user)
-    monkeypatch.setattr(
-        "app.modules.insights.service.acquire_lock",
-        lambda *args, **kwargs: False,
-    )
-    response = client.post(
-        f"/api/v1/interactions/{interaction['id']}/insights",
-        headers=auth_headers(token),
-    )
-    assert response.status_code == 409
-    assert response.json()["error_code"] == "INSIGHT_GENERATION_IN_PROGRESS"
 
 
 def test_generated_insight_schema_validation():

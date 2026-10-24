@@ -5,7 +5,7 @@ from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from app.config import settings
 
-logger = logging.getLogger("app.database")
+logger = logging.getLogger("e2m-insights.database")
 
 
 def enable_sqlite_foreign_keys(sqlite_engine) -> None:

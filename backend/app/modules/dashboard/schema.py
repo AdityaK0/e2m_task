@@ -31,6 +31,7 @@ class AtRiskCustomer(BaseModel):
     name: str
     status: CustomerStatus
     health_score: int | None
+    health_sample_size: int
     assigned_manager: str | None
 
 
@@ -38,6 +39,7 @@ class DashboardSummary(BaseModel):
     total_customers: int
     active_customers: int
     at_risk_customers: int
+    average_health_score: float | None
     prospect_customers: int
     churned_customers: int
     total_interactions: int

@@ -1,21 +1,16 @@
-import logging
+import secrets
 
 from sqlalchemy import delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.modules.auth.repository import SessionRepository
 from app.modules.customers.models import CustomerManager
 from app.modules.users.models import Role, User
 from app.modules.users.repository import UserRepository
 from app.modules.users.schema import UserCreateRequest, UserUpdateRequest
 from app.utils.exceptions import AppException
-from app.utils.cache import invalidate_customer_mutation, invalidate_dashboard_for
 from app.utils.pagination import pagination_meta
 from app.utils.security import hash_password, normalize_email, validate_password
-
-logger = logging.getLogger("app.users")
-
 
 class UserService:
     def __init__(self, db: Session):
@@ -49,7 +44,10 @@ class UserService:
     def list_assignable(self) -> list[User]:
         return self.repo.list_assignable()
 
-    def create_user(self, data: UserCreateRequest) -> User:
+    def list_active_options(self) -> list[User]:
+        return self.repo.list_active_options()
+
+    def create_user(self, data: UserCreateRequest) -> tuple[User, str]:
         email = normalize_email(data.email)
         if self.repo.get_by_email(email):
             raise AppException(
@@ -57,18 +55,28 @@ class UserService:
                 status_code=409,
                 error_code="EMAIL_ALREADY_REGISTERED",
             )
-        validate_password(data.password)
+        password = data.password or secrets.token_urlsafe(32)
+        validate_password(password)
+        auto_assign = data.auto_assign_new_customers
+        if data.role == Role.ADMIN and auto_assign:
+            raise AppException(
+                "Auto-assign is available to managers only",
+                status_code=400,
+                error_code="INVALID_AUTO_ASSIGN_ROLE",
+            )
         try:
-            return self.repo.create(
+            user = self.repo.create(
                 User(
                     name=data.name,
                     email=email,
-                    password_hash=hash_password(data.password),
+                    password_hash=hash_password(password),
                     role=data.role,
                     is_active=True,
-                    auto_assign_new_customers=False,
+                    must_change_password=True,
+                    auto_assign_new_customers=auto_assign,
                 )
             )
+            return user, password
         except IntegrityError:
             self.db.rollback()
             raise AppException(
@@ -76,6 +84,14 @@ class UserService:
                 status_code=409,
                 error_code="EMAIL_ALREADY_REGISTERED",
             )
+
+    def reset_password(self, user_id: int) -> tuple[User, str]:
+        user = self.get_or_404(user_id)
+        password = secrets.token_urlsafe(32)
+        user.password_hash = hash_password(password)
+        user.must_change_password = True
+        user = self.repo.save(user)
+        return user, password
 
     def update_user(self, target_id: int, data: UserUpdateRequest, actor: User) -> User:
         target = self.get_or_404(target_id)
@@ -123,22 +139,4 @@ class UserService:
             )
 
         target = self.repo.save(target)
-        if changing_role:
-            invalidate_customer_mutation({target.id})
-        else:
-            invalidate_dashboard_for({target.id})
-
-        if data.is_active is False:
-            SessionRepository(self.db).revoke_all_for_user(target.id)
-            logger.info("user deactivated and sessions revoked user_id=%s", target.id)
         return target
-
-    def revoke_sessions(self, user_id: int, actor: User) -> int:
-        if user_id == actor.id:
-            raise AppException(
-                "Use logout-all to revoke your own sessions",
-                status_code=409,
-                error_code="CANNOT_MODIFY_SELF",
-            )
-        self.get_or_404(user_id)
-        return SessionRepository(self.db).revoke_all_for_user(user_id)
