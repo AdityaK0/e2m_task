@@ -1,0 +1,39 @@
+
+name: Deploy E2M Backend to Linode
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-deploy.yml"
+
+  workflow_dispatch:
+
+concurrency:
+  group: e2m-backend-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy E2M Backend to Linode
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Run deployment script on Linode
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.LINODE_HOST }}
+          username: ${{ secrets.LINODE_USERNAME }}
+          key: ${{ secrets.LINODE_SSH_PRIVATE_KEY }}
+          port: 22
+          script_stop: true
+          script: |
+            set -eu
+            echo "Starting E2M backend deployment..."
+            bash /home/e2m/scripts/deploy.sh
+            echo "E2M backend deployment finished."
