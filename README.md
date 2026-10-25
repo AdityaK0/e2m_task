@@ -39,7 +39,7 @@ Requirements: Docker Desktop with Compose v2.
 
 4. Sign in with the `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD` values from the provided `.env`.
 
-The initial admin is created only when no admin exists, so changing these values later does not affect an existing database. To start from scratch, run `docker compose down -v` and start again. Administrators create all other accounts from **Team → Create user**; public registration is disabled.
+The initial admin is created only when no admin exists, so changing these values later does not affect an existing database. To start from scratch, run ` docker compose down --rmi local --remove-orphans -v` and start again. Administrators create all other accounts from **Team → Create user**; public registration is disabled.
 
 Choose one provider:
 
@@ -71,9 +71,13 @@ saved; a requested generation is recorded as a failed insight.
 Reset all data:
 
 ```powershell
-docker compose down -v
+ docker compose down --rmi local --remove-orphans -v
 ```
+and build again make sure to have provided .env in root
 
+```
+docker compose build --no-cache
+```
 ## Health scores and preferences
 
 Preferences are stored in the `preferences` table and registered in
