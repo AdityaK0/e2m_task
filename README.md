@@ -22,34 +22,24 @@ Built for the 48-hour technical assessment with a FastAPI/PostgreSQL/Redis backe
 
 Requirements: Docker Desktop with Compose v2.
 
-```powershell
-Copy-Item .env.example .env
-docker compose up --build
-```
+1. Make sure the provided `.env` file is in the project root, next to `docker-compose.yml`.
+2. Start the stack:
 
-Open:
+   ```powershell
+   docker compose up --build
+   ```
 
-- Frontend: http://localhost:3000
-- API docs: http://localhost:8000/docs
-- Health: http://localhost:8000/health
+   The first start runs the database migrations and creates the initial administrator. Wait until the backend reports healthy.
 
-The API bootstraps the initial administrator after migrations complete. Demo
-users and workspace records are not created automatically; create users and
-customer records through the application as needed.
+3. Open the app:
 
-Configure
-`BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PASSWORD`, and
-`BOOTSTRAP_ADMIN_NAME` to choose the initial administrator in other
-environments. On startup, the backend creates this account only when no admin
-exists. Administrators create all subsequent accounts from **Team → Create
-user**; public registration is disabled. A generated or reset password is
-shown once and the user must change it before using the workspace.
+   - Frontend: http://localhost:3000
+   - API docs: http://localhost:8000/docs
+   - Health: http://localhost:8000/health
 
-To try live AI insights, set a provider and its key in `.env`, then recreate the backend:
+4. Sign in with the `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD` values from the provided `.env`.
 
-```powershell
-docker compose up -d backend
-```
+The initial admin is created only when no admin exists, so changing these values later does not affect an existing database. To start from scratch, run `docker compose down -v` and start again. Administrators create all other accounts from **Team → Create user**; public registration is disabled.
 
 Choose one provider:
 
@@ -222,7 +212,6 @@ e2m-insights/
 │  └─ Dockerfile
 ├─ docker-compose.yml
 ├─ .env.example
-├─ db/e2m_insights_schema.sql
 ├─ scripts/export_schema.sh
 └─ README.md
 ```
