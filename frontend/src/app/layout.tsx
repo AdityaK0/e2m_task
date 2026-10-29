@@ -1,8 +1,11 @@
 import type { Metadata, Viewport } from "next";
 
 import { Providers } from "@/components/providers";
+import { ServiceDisabled } from "@/components/service-disabled";
 
 import "./globals.css";
+
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   applicationName: "E2M Insights",
@@ -40,6 +43,19 @@ export const viewport: Viewport = {
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  const apiDisabled =
+    (process.env.API_DISABLED ?? "").trim().toLowerCase() === "true";
+
+  if (apiDisabled) {
+    return (
+      <html lang="en">
+        <body className="font-sans">
+          <ServiceDisabled />
+        </body>
+      </html>
+    );
+  }
+
   return (
     <html lang="en">
       <body className="font-sans">

@@ -313,6 +313,7 @@ Key backend variables are documented in `backend/.env.example`. Important ones:
 Frontend configuration:
 
 - `NEXT_PUBLIC_API_BASE_URL` (build-time, defaults to `http://localhost:8000/api/v1`)
+- `API_DISABLED` (default `false`). When `true`, the frontend bypasses all providers and API calls, showing a project-completed notice instead. This is intended for closing a hosted demo without allowing API traffic.
 
 ## Design decisions and tradeoffs
 
